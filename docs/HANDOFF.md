@@ -19,9 +19,9 @@ A data mining course project (UVic CSC503). We classify words in sentences into 
 ```
 f(o) = c(e(o)) = class
 
-o = (s, span)
-    s    = a sentence
-    span = character span of the word being classified in s
+o = (s, i)
+    s = a StereoSet sentence
+    i = character span of the word being classified in s
 e = bert-base-uncased, final hidden layer
     → 768-d vector for the span (mean of its subword token vectors)
 c = sklearn RandomForestClassifier
@@ -54,14 +54,9 @@ Axes kept: `gender`, `race` (call it "race/nationality" in outputs), `religion`.
 - **Count and report every drop** (by reason and axis). Write the counts to `results/data_report.json`.
 - One row per labeled span, so each item yields up to 3 rows (innate from the stereotype sentence, derived, neutral).
 
-## 4. Input mode (TEAM DECISION — implement both, behind one flag)
+## 4. Input: StereoSet sentences as-is (team decision: Option B)
 
-`config.yaml: input_mode: sentence | template`
-
-- **`sentence` (Option B):** o = (StereoSet sentence, span). Natural context.
-- **`template` (Option A):** take the unique words per class from the mapping above and place each into neutral templates (SEAT-style, May et al. 2019), e.g. `"This is {w}."`, `"{w} is here."`, `"It is {w}."`. The span is the inserted word. Grammar will sometimes be imperfect; that is acceptable — note it in `docs/DECISIONS.md`.
-
-Everything downstream of the rows table must be identical for both modes. Default: `sentence`.
+o = (s, i): the original StereoSet sentence plus the span of the word being classified. The encoder reads the whole sentence; the span only selects which token vectors to pool. Do not build template inputs.
 
 ## 5. Evaluation
 
@@ -83,7 +78,7 @@ Output a single comparison table: model × macro-F1 (mean ± std over folds).
 
 ```
 limits-of-bias/
-  config.yaml        # seed, model, layer, input_mode, axes, dataset_revision, paths
+  config.yaml        # seed, model, layer, axes, dataset_revision, paths
   requirements.txt   # pinned with ==
   Dockerfile
   README.md          # how to run, citation for StereoSet
@@ -103,7 +98,7 @@ limits-of-bias/
 
 - Each stage reads the previous stage's file and writes its own. No stage imports another stage's internals.
 - `embed.py` runs once; teammates without a GPU work from `embeddings.npy`.
-- `embeddings_meta.json` records model name, layer, pooling, input_mode, dataset_revision, row count.
+- `embeddings_meta.json` records model name, layer, pooling, dataset_revision, row count.
 
 ## 8. Reproducibility
 
@@ -125,10 +120,9 @@ limits-of-bias/
 
 ## 11. Later — do NOT build now
 
-PCA (only if train ≫ held-out), RoBERTa-base second model, whitening, layer sweep, clean subset by annotator agreement (5/5), mining forest split points as learned limits, wealth axis (CrowS-Pairs), HolisticBias innate terms, reweighted cosine similarity.
+Template inputs (Option A, SEAT-style), PCA (only if train ≫ held-out), RoBERTa-base second model, whitening, layer sweep, clean subset by annotator agreement (5/5), mining forest split points as learned limits, wealth axis (CrowS-Pairs), HolisticBias innate terms, reweighted cosine similarity.
 
 ## 12. References
 
 - Nadeem et al. 2021, StereoSet: https://arxiv.org/abs/2004.09456
-- May et al. 2019, SEAT templates: https://arxiv.org/abs/1903.10561
 - Blodgett et al. 2021, pitfalls in StereoSet (threat to validity): https://aclanthology.org/2021.acl-long.81
