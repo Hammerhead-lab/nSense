@@ -5,12 +5,15 @@ One row per labeled span:
   derived = the fill word of the stereotype sentence      (gold_label 1)
   neutral = the fill word of the unrelated sentence       (gold_label 2)
 Anti-stereotype sentences (gold_label 0) and the profession axis are dropped.
+Derived/neutral rows whose fill matches any kept target are cross-axis: they go to
+data/cross_axis_probe.csv instead of rows.csv.
 Every drop is counted by reason and axis in results/data_report.json.
 """
 import re
 from collections import Counter, defaultdict
 
 import pandas as pd
+import spacy
 from datasets import load_dataset
 
 from utils import load_config, path, set_seed, write_json
@@ -25,6 +28,9 @@ EDGE_CHARS = " \t\n\"'`.,;:!?()[]{}"
 
 COLUMNS = ["item_id", "sentence_id", "axis", "class", "word", "group",
            "span_start", "span_end", "sentence"]
+PROBE_COLUMNS = COLUMNS + ["source_class", "matched_target"]
+
+SPACY_MODEL = "en_core_web_sm"
 
 
 def load_items(cfg):
@@ -78,18 +84,26 @@ def extract_fill(context, sentence):
     return start, end, how
 
 
+def normalize_target(target):
+    """Lowercased, whitespace-normalized target: the innate group key."""
+    return " ".join(target.lower().split())
+
+
+def target_pattern(target):
+    """Decision-8 rule: case-insensitive, at word boundaries, with the suffix list and y -> ies."""
+    t = re.escape(target.strip().lower()).replace(r"\ ", r"\s+")
+    alts = [t + "(?:" + "|".join(TARGET_SUFFIXES) + ")"]
+    if target.lower().endswith("y"):
+        alts.append(t[:-1] + "ies")  # mommy -> mommies
+    return re.compile(r"(?<![a-z])(?:" + "|".join(alts) + r")(?![a-z])")
+
+
 def find_target(target, sentence, avoid):
     """Case-insensitive search for the target (plus a simple suffix) outside the span `avoid`.
 
     Returns (start, end, how) or (None, None, drop_reason).
     """
-    t = re.escape(target.strip().lower()).replace(r"\ ", r"\s+")
-    alts = [t + "(?:" + "|".join(TARGET_SUFFIXES) + ")"]
-    if target.lower().endswith("y"):
-        alts.append(t[:-1] + "ies")  # mommy -> mommies
-    pattern = re.compile(r"(?<![a-z])(?:" + "|".join(alts) + r")(?![a-z])")
-
-    hits = list(pattern.finditer(sentence.lower()))
+    hits = list(target_pattern(target).finditer(sentence.lower()))
     if not hits:
         return None, None, "target_not_found"
     outside = [m for m in hits if m.end() <= avoid[0] or m.start() >= avoid[1]]
@@ -100,15 +114,37 @@ def find_target(target, sentence, avoid):
     return m.start(), m.end(), how
 
 
-def make_row(item, sent_id, axis, cls, sentence, start, end):
+def lemmatizer():
+    """spaCy lemma of a lowercased word, taken out of context so a surface form always gets one group."""
+    nlp = spacy.load(SPACY_MODEL)
+    cache = {}
+
+    def lemma(word):
+        w = word.lower()
+        if w not in cache:
+            cache[w] = " ".join(t.lemma_.lower() for t in nlp(w))
+        return cache[w]
+    return lemma
+
+
+def make_row(item, sent_id, axis, cls, sentence, start, end, group):
     word = sentence[start:end]
     return {"item_id": item["id"], "sentence_id": sent_id, "axis": axis, "class": cls,
-            "word": word, "group": word.lower(), "span_start": start, "span_end": end,
+            "word": word, "group": group, "span_start": start, "span_end": end,
             "sentence": sentence}
+
+
+def match_any_target(word, patterns):
+    """First kept target (sorted) whose decision-8 pattern matches the word, else None."""
+    for target, pattern in patterns:
+        if pattern.search(word.lower()):
+            return target
+    return None
 
 
 def sentence_rows(ds, cfg):
     axes = set(cfg["axes"])
+    lemma = lemmatizer()
     labels = cfg.get("axis_labels", {})
     rows = []
     drops = defaultdict(Counter)       # reason -> axis -> count
@@ -144,7 +180,8 @@ def sentence_rows(ds, cfg):
                     drops["innate_no_usable_stereotype_sentence"][axis] += 1
                 continue
             stats["fill_alignment"][how] += 1
-            rows.append(make_row(item, sid, axis, cls, text, start, end))
+            rows.append(make_row(item, sid, axis, cls, text, start, end,
+                                 lemma(text[start:end])))
 
             if gold == STEREO and not innate_done:
                 t_start, t_end, t_how = find_target(item["target"], text, (start, end))
@@ -152,96 +189,85 @@ def sentence_rows(ds, cfg):
                     drops[f"innate_{t_how}"][axis] += 1
                 else:
                     stats["innate_match"][t_how] += 1
-                    rows.append(make_row(item, sid, axis, "innate", text, t_start, t_end))
+                    rows.append(make_row(item, sid, axis, "innate", text, t_start, t_end,
+                                         normalize_target(item["target"])))
                 innate_done = True
+
+    # Cross-axis: a derived/neutral fill that matches any kept target (decision 8 rules)
+    # is held out of training as a probe set.
+    targets = sorted({normalize_target(item["target"]) for item in ds
+                      if item["bias_type"] in axes})
+    patterns = [(t, target_pattern(t)) for t in targets]
+    df = pd.DataFrame(rows, columns=COLUMNS)
+    matched = [None if c == "innate" else match_any_target(w, patterns)
+               for c, w in zip(df["class"], df["word"])]
+    df["matched_target"] = matched
+    is_probe = df["matched_target"].notna()
+    probe = df[is_probe].assign(source_class=df.loc[is_probe, "class"])[PROBE_COLUMNS]
+    for cls, axis in zip(probe["class"], probe["axis"]):
+        drops[f"{cls}_cross_axis"][axis] += 1
+    df = df[~is_probe][COLUMNS]
 
     report = {
         "items_total": len(ds),
         "items_by_bias_type": dict(items_by_type),
+        "kept_targets": targets,
         "drops": {r: dict(c) for r, c in sorted(drops.items())},
         "stats": {k: dict(c) for k, c in stats.items()},
     }
-    return pd.DataFrame(rows, columns=COLUMNS), report
+    return df.reset_index(drop=True), probe.reset_index(drop=True), report
 
 
-def resolve_word_labels(df):
-    """One (class, axis) per unique word for template mode: majority vote, ties dropped."""
-    kept, dropped = [], []
-    for group, g in df.groupby("group", sort=True):
-        cls_counts = g["class"].value_counts()
-        if len(cls_counts) > 1 and cls_counts.iloc[0] == cls_counts.iloc[1]:
-            dropped.append({"word": group, "classes": cls_counts.to_dict()})
-            continue
-        cls = cls_counts.index[0]
-        axis = g.loc[g["class"] == cls, "axis"].value_counts().index[0]
-        ids = ";".join(sorted(g.loc[g["class"] == cls, "item_id"].unique()))
-        kept.append({"group": group, "class": cls, "axis": axis, "item_id": ids})
-    return kept, dropped
-
-
-def template_rows(df, cfg):
-    words, tied = resolve_word_labels(df)
-    rows = []
-    for w in words:
-        for k, tpl in enumerate(cfg["templates"]):
-            start = tpl.index("{w}")
-            sentence = tpl.replace("{w}", w["group"])
-            end = start + len(w["group"])
-            rows.append({"item_id": w["item_id"], "sentence_id": f"template:{k}",
-                         "axis": w["axis"], "class": w["class"], "word": w["group"],
-                         "group": w["group"], "span_start": start, "span_end": end,
-                         "sentence": sentence})
-    report = {"template_count": len(cfg["templates"]),
-              "words_dropped_class_tie": tied}
-    return pd.DataFrame(rows, columns=COLUMNS), report
-
-
-def summarize(df, src_df):
+def summarize(df, probe):
+    words = df["word"].str.lower()
     by_class_axis = pd.crosstab(df["class"], df["axis"], margins=True)
-    unique = df.groupby("class")["group"].nunique()
-    unique_axis = pd.crosstab(df.drop_duplicates(["class", "axis", "group"])["class"],
+    unique = words.groupby(df["class"]).nunique()
+    unique_axis = pd.crosstab(df.assign(w=words).drop_duplicates(["class", "axis", "w"])["class"],
+                              df.assign(w=words).drop_duplicates(["class", "axis", "w"])["axis"])
+    groups_axis = pd.crosstab(df.drop_duplicates(["class", "axis", "group"])["class"],
                               df.drop_duplicates(["class", "axis", "group"])["axis"])
-    classes_per_word = src_df.groupby("group")["class"].nunique()
-    multi = src_df[src_df["group"].isin(classes_per_word[classes_per_word > 1].index)]
-    multi_words = {w: g["class"].value_counts().to_dict() for w, g in multi.groupby("group")}
-    innate_words = sorted(df.loc[df["class"] == "innate", "group"].unique())
+    classes_per_word = df["class"].groupby(words).nunique()
+    multi = df[words.isin(classes_per_word[classes_per_word > 1].index)]
+    multi_words = {w: g["class"].value_counts().to_dict()
+                   for w, g in multi.groupby(multi["word"].str.lower())}
+    innate_words = sorted(words[df["class"] == "innate"].unique())
+    probe_words = probe["word"].str.lower().value_counts()
     return {
         "rows_total": len(df),
         "rows_by_class_axis": {c: by_class_axis.loc[c].to_dict() for c in by_class_axis.index},
         "unique_words_by_class": unique.to_dict(),
         "unique_words_by_class_axis": {c: unique_axis.loc[c].to_dict() for c in unique_axis.index},
+        "unique_groups_by_class": df.groupby("class")["group"].nunique().to_dict(),
+        "unique_groups_by_class_axis": {c: groups_axis.loc[c].to_dict() for c in groups_axis.index},
         "words_in_multiple_classes": multi_words,
         "innate_words": innate_words,
-    }, by_class_axis, unique_axis
+        "cross_axis_probe_rows": len(probe),
+        "cross_axis_probe_by_class": probe["source_class"].value_counts().to_dict(),
+        "cross_axis_probe_by_word": probe_words.to_dict(),
+    }, by_class_axis, groups_axis
 
 
 def main():
     cfg = load_config()
     set_seed(cfg["seed"])
     ds = load_items(cfg)
-    src_df, report = sentence_rows(ds, cfg)
-
-    if cfg["input_mode"] == "sentence":
-        df = src_df
-    elif cfg["input_mode"] == "template":
-        df, tpl_report = template_rows(src_df, cfg)
-        report["template"] = tpl_report
-    else:
-        raise ValueError(f"unknown input_mode: {cfg['input_mode']}")
+    df, probe, report = sentence_rows(ds, cfg)
 
     # Spans must point at the word they claim to.
-    assert all(s[a:b] == w for s, a, b, w in
-               zip(df["sentence"], df["span_start"], df["span_end"], df["word"]))
+    for d in (df, probe):
+        assert all(s[a:b] == w for s, a, b, w in
+                   zip(d["sentence"], d["span_start"], d["span_end"], d["word"]))
 
-    summary, by_class_axis, unique_axis = summarize(df, src_df)
-    report = {"input_mode": cfg["input_mode"], "dataset_revision": cfg["dataset_revision"],
-              **report, **summary}
+    summary, by_class_axis, groups_axis = summarize(df, probe)
+    report = {"dataset_revision": cfg["dataset_revision"], **report, **summary}
     df.to_csv(path(cfg, "rows"), index=False)
+    probe.to_csv(path(cfg, "cross_axis_probe"), index=False)
     write_json(report, path(cfg, "data_report"))
 
-    print(f"input_mode = {cfg['input_mode']}   rows = {len(df)}\n")
+    print(f"rows = {len(df)}\n")
     print("Rows per class x axis:\n", by_class_axis, "\n", sep="")
-    print("Unique words per class x axis:\n", unique_axis, "\n", sep="")
+    print("Unique groups per class x axis:\n", groups_axis, "\n", sep="")
+    print("Unique groups per class:", summary["unique_groups_by_class"])
     print("Unique words per class:", summary["unique_words_by_class"])
     n_innate = summary["unique_words_by_class"].get("innate", 0)
     if not 25 <= n_innate <= 100:
@@ -250,13 +276,13 @@ def main():
     print("\nDrops (reason: axis counts):")
     for reason, counts in report["drops"].items():
         print(f"  {reason}: {counts}  (total {sum(counts.values())})")
+    print(f"\nCross-axis probe rows: {len(probe)}  by class: {summary['cross_axis_probe_by_class']}")
+    for w, n in summary["cross_axis_probe_by_word"].items():
+        print(f"  {w}: {n}")
     print("\nStats:")
     for k, v in report["stats"].items():
         print(f"  {k}: {v}")
-    if "template" in report:
-        print(f"\nTemplate mode: words dropped for class ties: "
-              f"{len(report['template']['words_dropped_class_tie'])}")
-    print(f"\nWrote {path(cfg, 'rows')} and {path(cfg, 'data_report')}")
+    print(f"\nWrote {path(cfg, 'rows')}, {path(cfg, 'cross_axis_probe')} and {path(cfg, 'data_report')}")
 
 
 if __name__ == "__main__":

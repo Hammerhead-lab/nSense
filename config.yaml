@@ -8,16 +8,6 @@ layer: -1            # final hidden layer
 pooling: mean        # mean of the span's subword token vectors
 batch_size: 32
 
-# Input mode: sentence (Option B, StereoSet sentence) | template (Option A, SEAT-style)
-input_mode: sentence
-templates:
-  - "This is {w}."
-  - "{w} is here."
-  - "It is {w}."
-  - "That is {w}."
-  - "Here is {w}."
-  - "There is {w}."
-
 # Data (StereoSet intrasentence, validation split)
 dataset_name: McGill-NLP/stereoset
 dataset_config: intrasentence
@@ -33,6 +23,7 @@ n_splits: 5
 # Paths (relative to the project root)
 paths:
   rows: data/rows.csv
+  cross_axis_probe: data/cross_axis_probe.csv
   embeddings: data/embeddings.npy
   embeddings_meta: data/embeddings_meta.json
   results: results

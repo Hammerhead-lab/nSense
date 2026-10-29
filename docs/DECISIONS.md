@@ -34,12 +34,12 @@ Every judgement call made while building, newest at the bottom. Open questions a
     neutral 1). In sentence mode the context differs, so both labels can be correct. All rows of a word
     share one group, so this cannot leak across folds.
 
-## Template mode
+## Removed in CHANGE-01 (team chose Option B). Template mode
 
-13. **Templates**: `This is {w}.`, `{w} is here.`, `It is {w}.`, `That is {w}.`, `Here is {w}.`,
+13. **Removed in CHANGE-01 (team chose Option B).** **Templates**: `This is {w}.`, `{w} is here.`, `It is {w}.`, `That is {w}.`, `Here is {w}.`,
     `There is {w}.`. The word is inserted lowercased (the model is uncased). Grammar is sometimes off
     (*"This is poor."* is fine, *"This is mothers."* is not). The handoff says this is acceptable.
-14. **One label per word in template mode.** Each template sentence is the same for every occurrence of a
+14. **Removed in CHANGE-01 (team chose Option B).** **One label per word in template mode.** Each template sentence is the same for every occurrence of a
     word, so a word with several labels would give identical vectors with different labels. Rule:
     majority class wins and ties are dropped (24 words on the pinned revision, all 1-vs-1
     derived/neutral). The axis is the majority axis within the winning class. `item_id` lists every
@@ -53,13 +53,57 @@ Every judgement call made while building, newest at the bottom. Open questions a
 16. **The container runs as uid 1000, not root**, so files written to the bind-mounted `data/` and
     `results/` belong to the host user.
 
+## CHANGE-01 (Option B only, grouping, cross-axis rows)
+
+17. **Grouping key (resolves OPEN item 1).** `group` is now the item's `target`, lowercased and
+    whitespace-normalized, for innate rows, and the spaCy lemma of the fill word, lowercased, for derived
+    and neutral rows. `word` stays the surface form. On the pinned revision: 49 innate groups (one per
+    kept target, from 71 surface words), derived 600 words → 575 groups, neutral 761 words → 720 groups.
+18. **Lemmas are taken out of context.** The lowercased fill word is lemmatized alone, not inside its
+    sentence (`en_core_web_sm` 3.7.1, full pipeline). In context the same surface form can get different
+    lemmas (*left* → *leave* or *left*) and so land in two groups, which would put one word in train and
+    test. Out of context each surface word gets exactly one lemma, so groups only ever merge words.
+    Accepted quirks: *better* → *well*, *boxing* → *box*.
+19. **Cross-axis rows are held out (resolves OPEN item 2).** The class is relative to the axis: *muslim*
+    is innate to religion but is a stereotype fill for a race/nationality item. The classifier has no axis
+    input, so these rows would give contradictory labels. A derived or neutral row whose fill matches any
+    kept target under the decision-8 rules is removed from `rows.csv` and written to
+    `data/cross_axis_probe.csv` (rows schema plus `source_class` and `matched_target`). It is not embedded
+    or evaluated yet. On the pinned revision: 24 derived rows, 0 neutral. *muslim* 15 (14
+    race/nationality, 1 religion), *african* 3, *russian* 2, *muslims* 1, *arab* 1, *ethiopia* 1,
+    *male* 1. That is one more than CHANGE-01 expected: *muslims* matches *muslim* through the `s` suffix.
+20. **Cross-axis matching details.** Kept targets are the 49 normalized targets of every gender, race
+    and religion item, including items whose rows were dropped. A match on the item's own axis also
+    counts (*male* in a gender item, *muslim* in a religion item), as CHANGE-01 says "any" target.
+    `matched_target` is the first match in alphabetical order (no fill matched more than one). Removed
+    rows are counted in `drops` as `derived_cross_axis` / `neutral_cross_axis`. The output path is
+    `paths.cross_axis_probe` in `config.yaml`.
+21. **Report keys.** `group` is no longer the word, so `unique_words_by_class(_axis)` and
+    `words_in_multiple_classes` are now computed on the lowercased `word` to keep their meaning. New keys:
+    `kept_targets`, `unique_groups_by_class(_axis)`, `cross_axis_probe_rows`, `cross_axis_probe_by_class`,
+    `cross_axis_probe_by_word`. `input_mode` is removed.
+22. **`click==8.1.8` added to `requirements.txt`.** In the built image `import spacy` failed with
+    `No module named 'click'`. The pinned `typer` no longer installs it. With the pin, `pip check` is clean.
+23. **README location.** The README is `docs/README.md`; there is no root `README.md`. Template mode and
+    `input_mode` were removed from `docs/README.md`.
+24. **Stages not in the repo.** `src/embed.py`, `src/train.py` and `src/baselines.py` do not exist on
+    this branch. There was no `embeddings_meta.json` code to change, and no GroupKFold assertion to check.
+    Recheck both when those stages are added.
+
 ## Open questions (check-in 1)
 
-- **OPEN: Group innate rows by target, not surface word?** The 49 targets give 71 unique innate words,
+- **Resolved in CHANGE-01 (decision 17).** Group innate rows by target, not surface word? The 49 targets give 71 unique innate words,
   because of plurals and suffixes (*mother/mothers*, *ethiopia/ethiopian/ethiopians*). Grouping by
   lowercased word can put *mother* in train and *mothers* in test. That is near-duplicate leakage, and it
   helps the forest most on the innate class.
-- **OPEN: Innate words that appear as derived fills.** *muslim* (15), *african* (3), *russian* (2),
+- **Resolved in CHANGE-01 (decision 19).** Innate words that appear as derived fills. *muslim* (15), *african* (3), *russian* (2),
   *arab*, *ethiopia*, *male* (1 each) occur as the stereotype fill, so they are labeled derived. By the
   class definitions they are innate. Options: keep as derived (follow the mapping), relabel as innate,
   or drop.
+
+## Open questions (CHANGE-01 check-in)
+
+- **OPEN: *ethiopian* sits in two innate groups.** *Ethiopia* and *Ethiopian* are both kept targets. The
+  surface word *ethiopian* is innate in group `ethiopia` (3 rows, suffix match) and in group `ethiopian`
+  (17 rows), so GroupKFold can put the same word in train and test. It is the only surface word in more
+  than one group. Options: merge the two targets into one group, or leave as is.

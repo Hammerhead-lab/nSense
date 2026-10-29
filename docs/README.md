@@ -34,14 +34,14 @@ docker run --rm -v "$PWD/data:/app/data" -v "$PWD/results:/app/results" limits-o
 
 To run edited code without rebuilding, also mount `-v "$PWD/src:/app/src" -v "$PWD/config.yaml:/app/config.yaml"`.
 
-Settings live in `config.yaml`: seed, model and revision, layer, `input_mode`
-(`sentence` or `template`), axes, dataset revision, and paths.
+Settings live in `config.yaml`: seed, model and revision, layer, axes, dataset revision,
+and paths.
 
 ## Stages
 
 | Stage | Reads | Writes |
 |---|---|---|
-| `src/data.py` | StereoSet (pinned revision) | `data/rows.csv`, `results/data_report.json` |
+| `src/data.py` | StereoSet (pinned revision) | `data/rows.csv`, `data/cross_axis_probe.csv`, `results/data_report.json` |
 | `src/embed.py` | `data/rows.csv` | `data/embeddings.npy`, `data/embeddings_meta.json` |
 | `src/train.py` | rows + embeddings | `results/` |
 | `src/baselines.py` | rows + embeddings | `results/` |
@@ -58,6 +58,5 @@ stored in this repository.
 > pretrained language models. In *Proceedings of ACL-IJCNLP 2021*, pages 5356–5371.
 > https://arxiv.org/abs/2004.09456
 
-Template mode uses SEAT-style templates (May et al. 2019, https://arxiv.org/abs/1903.10561).
 For known problems with StereoSet as a measure, see Blodgett et al. 2021,
 https://aclanthology.org/2021.acl-long.81.
