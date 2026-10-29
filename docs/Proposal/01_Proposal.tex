@@ -1,0 +1,125 @@
+\documentclass[sigconf]{acmart}
+% Cleaning 
+\pagestyle{fancy} % removes running headers
+\settopmatter{printacmref=false} % Removes citation information below abstract
+\renewcommand\footnotetextcopyrightpermission[1]{} % removes footnote with conference information in first column
+\pagestyle{plain} % removes running headers
+\fancyhead{}
+\settopmatter{printacmref=false, printfolios=false}
+% Copyright
+\setcopyright{none}
+% \setcopyright{acmcopyright}
+% \setcopyright{acmlicensed}
+% \setcopyright{rightsretained}
+% \setcopyright{usgov}
+% \setcopyright{usgovmixed}
+% \setcopyright{cagov}
+% \setcopyright{cagovmixed}
+\settopmatter{printacmref=false} 
+\acmDOI{}
+
+
+\setlength{\parskip}{0pt}
+\setlength{\parsep}{0pt}
+\setlength{\headsep}{0pt}
+\setlength{\topskip}{0pt}
+\setlength{\topmargin}{0pt}
+\setlength{\topsep}{0pt}
+\setlength{\partopsep}{0pt}
+%\linespread{0.95}
+\usepackage{mdwlist}
+\usepackage{amsmath}
+
+
+\begin{document}
+\title{Bias Detection in Embedded Systems}
+
+\author{Harrison Dean}
+\affiliation{
+  \institution{University of Victoria}
+}
+\email{harrisondean@uvic.ca}
+
+\author{Carson Irvine}
+\affiliation{
+  \institution{University of Victoria}
+}
+\email{carsonirvine@uvic.ca}
+
+\author{Xavier Roepcke}
+\affiliation{
+  \institution{University of Victoria}
+}
+\email{xavierroepcke@uvic.ca}
+
+\author{Matthew Dunfee}
+\affiliation{
+ \institution{University of Victoria}
+}\email{m1dunfee@uvic.ca}
+
+\begin{abstract}
+Modern artificial intelligence usage in everyday tasks makes the neutrality of these systems paramount for mitigating its systemic impact. Distortions in learned representations, stemming from the source data to the architecture used to store and index them, cause bias in data interpretation. This work trains a meta-model to detect such distortions directly from the embedded vector space, providing a mechanism to verify a representation's integrity before it is relied upon. The code base, along with instructions can be found at https://github.com/Hammerhead-lab/nSense 
+\end{abstract}
+
+
+\keywords{RAG, embedding bias, vector databases, bias attribution, AI, LLM.}
+\maketitle
+
+\section{Introduction}
+Vector embeddings and vector databases are the backbone of modern information retrieval. Embeddings capture relationships between data points by mapping discrete data sets into high-dimensional vector spaces, enabling fast similarity search, clustering, and spatial querying \cite{jegou2010product}. For example, mapping some $\mathcal{S} \subset \mathbb{N}$ into a vector space allows algorithms to measure relationships between items without relying on strict categorical matching. However, vector representations are at risk of bias and geometric space distortions during the embedding process \cite{NIPS2016_a486cd07}. Architectural assumptions or biased training data can cause certain clusters of data to skew. 
+
+\section{Motivation}
+AI is widely used across industries, so bias in embeddings could affect how information is interpreted in fields from banking to education. Research shows that word embeddings trained on real-world data can exhibit bias, including gender stereotypes~\cite{NIPS2016_a486cd07}. Detecting these biases could benefit both users and institutions by supporting safer AI, given the potential to cause harm~\cite{Schawrtz2022}. Current bias detection methods typically evaluate individual vectors against lists or analyze post-translation model performance \cite{badilla2020wefe}. This fails to evaluate the embedded dataset as a whole, making it difficult to determine whether a given representation is inherently biased. To address this limitation, the proposed model takes an embedded dataset as input and determines whether it is biased by analyzing its geometric distribution.
+
+
+\subsection{Motivating Example}
+Consider a user discussing cultural attire with an LLM. A distortion in the word embedding model’s vector space could prevent the system from retrieving accurate information. Detecting this bias could help improve the quality of the model’s output.
+
+
+\section{Problem Definition}
+Let $S$ be a raw dataset and let $e$ be an embedding model that maps
+each element of $S$ into $\mathbb{R}^m$, giving the embedded set
+$e(S) = \{\, e(s) \mid s \in S \,\} \subset \mathbb{R}^m$.
+The task is to learn a mapping function $f(e(S)) = (x, y, z), x, y, z \in [0, 1]$,
+where $x$ is the degree to which $S$ is biased, $y$ is the degree of
+bias introduced by $e$, and $z$ is the degree to which $e(S)$ is
+biased, with $0$ indicating unbiased and $1$ biased.
+
+
+\subsection{Running Example}
+A tech company inputs its image collection, embedded by a pretrained image embedding model as the set $e(S)$, into $f$ to see how biased the data is $x$, how biased the embedding technique is $y$, and how biased the resulting vector space is $z$. Because of an unequal distribution of men to women, the data has an $x$ score of $0.75$; the embedding technique introduced a $y$ score of $0.2$; and the resulting vector space has a $z$ score of $0.85$.
+
+
+\section{Team Justification}
+Learning a function for bias classification requires skills that no single member holds entirely, but together creates a team greater than the sum of its parts. Dean and Irvine are both completing a BSc in Computer Science, and Roepcke is completing a BSc in Data Science. All three undergraduates have experience with linear algebra, 
+and Python. Dunfee is pursuing a PhD in AI and has extensive experience in a breadth of topics. The team plans to work collaboratively on all tasks required by the project. 
+
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{bibliography.bib} 
+
+\newpage
+\appendix
+\section{Pre AI-Assisted Text}
+This is our text before AI-Assisted Editing
+
+\subsection{Motivation}
+\noindent\texttt{\small
+AI is now prevalent in most industries; therefore, any bias produced by embedding could restrict information in everything from banking to education. Investing resources in detecting these biases has the potential to benefit the individual consumer as well as larger institutions. Existing research has shown that word embeddings trained with real world datasets have the ability to exhibit bias and stereotypes, such as how different genders are processed~\cite{NIPS2016_a486cd07}. Identifying bias is an important step in developing safe AI, as research indicates that biases may lead to harmful impacts~\cite{Schawrtz2022}.Current bias detection methods typically evaluate individual vectors against lists or analyze post-translation model performance \cite{badilla2020wefe}.}
+
+\subsection{Motivating Example}
+\noindent\texttt{\small
+Consider a user having a conversation with an LLM about cultural attire. If the word embedding model has a distortion inside its vector space, it could prevent the model from retrieving accurate data for the user. If this bias could be detected, it could help improve the quality of output received from the model.}
+
+\subsection{Problem Definition}
+\noindent\texttt{\small
+Let S be a Set of raw datasets, where each set is labeled b\_1 [0 $<$ b\_1 $<$ 1] from unbiased to biased. Let E the set of Embedding datasets where each set is labeled b\_2 [0 $<$ b\_2 $<$ 1] from unbiased to biased and t E T where T is a set of embedding techniques.\\
+O* = \{ S, E \}\\
+Let S\_hat be an unknown member of the sets S. Let e be member of E. Let x be the degree of certainty that the dataset is biased. Let y be the certainty that embedding is biased. Let the z degree to which the post embedded data is bias.\\
+f(e(S\_hat)) = (x, y, z)}
+
+\subsection{Running Example}
+\noindent\texttt{\small
+A Tech company inputs a training collection of images as an embedded set e(S) into meta model f to see how biased the data is x, how biased the technique was for embedding the data y, and how biased the vector embedding is z, as a result of data being vectorized. They find because of an unequal distribution of dogs to cats they have a x score of .75, The technique they chose came with a y score of .2, and as a result the z score is .85.}
+
+\end{document}

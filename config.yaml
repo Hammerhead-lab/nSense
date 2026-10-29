@@ -1,0 +1,39 @@
+# Single source of truth for every pipeline stage.
+seed: 503
+
+# Embedding model (e)
+model_name: bert-base-uncased
+model_revision: 86b5e0934494bd15c9632b12f734a8a67f723594
+layer: -1            # final hidden layer
+pooling: mean        # mean of the span's subword token vectors
+batch_size: 32
+
+# Input mode: sentence (Option B, StereoSet sentence) | template (Option A, SEAT-style)
+input_mode: sentence
+templates:
+  - "This is {w}."
+  - "{w} is here."
+  - "It is {w}."
+  - "That is {w}."
+  - "Here is {w}."
+  - "There is {w}."
+
+# Data (StereoSet intrasentence, validation split)
+dataset_name: McGill-NLP/stereoset
+dataset_config: intrasentence
+dataset_split: validation
+dataset_revision: bf6e7ce50491784d094fb7afe60a70ecccb89035
+axes: [gender, race, religion]
+axis_labels:
+  race: race/nationality
+
+# Evaluation
+n_splits: 5
+
+# Paths (relative to the project root)
+paths:
+  rows: data/rows.csv
+  embeddings: data/embeddings.npy
+  embeddings_meta: data/embeddings_meta.json
+  results: results
+  data_report: results/data_report.json
