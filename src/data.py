@@ -81,6 +81,14 @@ def extract_fill(context, sentence):
     start, end = trim(sentence, start, end)
     if start >= end:
         return None, None, "fill_empty"
+    # A context like "BLANKed" leaves only the stem as fill; widen the span to the whole word.
+    s0, e0 = start, end
+    while start > 0 and sentence[start - 1].isalnum():
+        start -= 1
+    while end < len(sentence) and sentence[end].isalnum():
+        end += 1
+    if (start, end) != (s0, e0):
+        how += "_widened_to_word"
     return start, end, how
 
 
@@ -218,6 +226,44 @@ def sentence_rows(ds, cfg):
     return df.reset_index(drop=True), probe.reset_index(drop=True), report
 
 
+def merge_shared_words(df):
+    """Union-find: merge groups that share a lowercased surface word. Name = alphabetically first member."""
+    parent = {g: g for g in df["group"].unique()}
+
+    def find(g):
+        while parent[g] != g:
+            parent[g] = parent[parent[g]]
+            g = parent[g]
+        return g
+
+    for _, groups in df.groupby(df["word"].str.lower())["group"]:
+        first, *rest = groups.unique()
+        for g in rest:
+            a, b = find(first), find(g)
+            if a != b:
+                parent[max(a, b)] = min(a, b)
+
+    members = defaultdict(list)
+    for g in sorted(parent):
+        members[find(g)].append(g)
+    merged = {root: ms for root, ms in members.items() if len(ms) > 1}
+    df = df.assign(group=df["group"].map(find))
+
+    groups_per_word = df.groupby(df["word"].str.lower())["group"].nunique()
+    assert (groups_per_word == 1).all(), \
+        f"words in more than one group: {groups_per_word[groups_per_word > 1].index.tolist()}"
+    return df, merged
+
+
+def concentration(df, k=10):
+    """Per class: the top-k groups by row count and their combined share of the class's rows."""
+    out = {}
+    for cls, g in df.groupby("class"):
+        top = g["group"].value_counts().head(k)
+        out[cls] = {"top_groups": top.to_dict(), "top_share": round(top.sum() / len(g), 4)}
+    return out
+
+
 def summarize(df, probe):
     words = df["word"].str.lower()
     by_class_axis = pd.crosstab(df["class"], df["axis"], margins=True)
@@ -244,6 +290,7 @@ def summarize(df, probe):
         "cross_axis_probe_rows": len(probe),
         "cross_axis_probe_by_class": probe["source_class"].value_counts().to_dict(),
         "cross_axis_probe_by_word": probe_words.to_dict(),
+        "class_concentration": concentration(df),
     }, by_class_axis, groups_axis
 
 
@@ -252,6 +299,7 @@ def main():
     set_seed(cfg["seed"])
     ds = load_items(cfg)
     df, probe, report = sentence_rows(ds, cfg)
+    df, report["merged_groups"] = merge_shared_words(df)
 
     # Spans must point at the word they claim to.
     for d in (df, probe):
@@ -273,6 +321,11 @@ def main():
     if not 25 <= n_innate <= 100:
         print(f"  WARNING: {n_innate} unique innate words; handoff expects ~50.")
     print(f"Words labeled with more than one class: {len(summary['words_in_multiple_classes'])}")
+    print("Merged groups (shared surface word):", report["merged_groups"] or "none")
+    print("Every lowercased word maps to exactly one group: OK")
+    print("\nClass concentration (top-10 groups):")
+    for cls, c in summary["class_concentration"].items():
+        print(f"  {cls}: share {c['top_share']:.1%}  {c['top_groups']}")
     print("\nDrops (reason: axis counts):")
     for reason, counts in report["drops"].items():
         print(f"  {reason}: {counts}  (total {sum(counts.values())})")

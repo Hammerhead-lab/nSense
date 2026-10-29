@@ -25,6 +25,7 @@ paths:
   rows: data/rows.csv
   cross_axis_probe: data/cross_axis_probe.csv
   embeddings: data/embeddings.npy
+  context_embeddings: data/context_embeddings.npy
   embeddings_meta: data/embeddings_meta.json
   results: results
   data_report: results/data_report.json

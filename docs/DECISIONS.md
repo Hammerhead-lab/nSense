@@ -90,6 +90,47 @@ Every judgement call made while building, newest at the bottom. Open questions a
     this branch. There was no `embeddings_meta.json` code to change, and no GroupKFold assertion to check.
     Recheck both when those stages are added.
 
+## CHANGE-02 (model stages, final grouping fix)
+
+25. **Groups that share a surface word are merged (resolves the *ethiopian* open item).** After decision 17,
+    a union-find joins any groups that share a lowercased `word`. The merged group is named after its
+    alphabetically first member. `data.py` asserts that every lowercased word maps to exactly one group.
+    On the pinned revision only `ethiopia` + `ethiopian` → `ethiopia` (53 innate rows), so there are 48
+    innate groups for 49 kept targets. Merges are listed under `merged_groups` in `data_report.json`.
+26. **Class concentration is reported, not corrected.** `class_concentration` in `data_report.json`
+    gives the top-10 groups per class and their share of the class's rows: derived 21.2% (*poor* alone
+    is 86 rows), innate 24.9%, neutral 12.2%. No reweighting.
+27. **Fill spans are widened to whole words.** One gender item has the context *"The grandfather
+    BLANKed the grandchildren."*, so the fill text was only the stem (*protect*, *beard*) and the span
+    ended inside a word. The `embed.py` alignment check failed on these 2 rows. The team chose to extend
+    a fill span to the word boundaries, so `word` is now *protected* / *bearded*. Rows, classes and
+    selection are unchanged. Group: *protect* (unchanged); *bearded* (was *beard*, as spaCy keeps the
+    adjective). They show as `exact_widened_to_word: 2` under `stats.fill_alignment`.
+28. **Span tokens.** A token belongs to the span if its character offsets overlap
+    `[span_start, span_end)` and it is not `[CLS]`/`[SEP]`/padding. The alignment check joins the span
+    tokens with `##` removed and compares them with the lowercased `word` without spaces. All 3,857 rows
+    pass.
+29. **Context vector.** The mean of every non-special token outside the span (CHANGE-02). `embed.py`
+    asserts that each row has at least one such token. Saved to `data/context_embeddings.npy`
+    (`paths.context_embeddings`).
+30. **Shared folds and metrics live in `utils.py`.** `group_folds` (GroupKFold plus the hard no-overlap
+    assertion) and `evaluate` (per-fold and mean ± std metrics) are used by both `train.py` and
+    `baselines.py`, so the folds and metrics are the same by construction. Stages still do not import
+    each other. GroupKFold is deterministic, so no seed is involved.
+31. **Permutation importance runs with `n_jobs=-1`** across features, on each held-out fold. With an
+    integer `random_state` the result does not depend on the number of workers. `importances.csv` holds
+    the mean across folds and the std across folds per feature, sorted by mean.
+32. **Baseline details.** Single direction: the per-axis innate centroid comes from training rows only;
+    the feature is the cosine to the centroid of the row's own axis. Part of speech: `doc.char_span(...,
+    alignment_mode="expand").root.pos_` in the full sentence, one-hot over all tags seen, then an
+    unlimited-depth tree (HANDOFF gives no depth). Frequency: `zipf_frequency(word, "en")` of the surface
+    word. Context-only: the forest's exact settings on the context vectors. All trees use
+    `random_state=seed`.
+33. **`comparison.csv`** has one row per model: held-out macro-F1 mean and std, held-out per-class F1
+    (mean over folds) and train macro-F1. `baselines.py` reads the forest row from
+    `results/train_report.json`. Full per-fold reports are in `train_report.json` and
+    `baselines_report.json`.
+
 ## Open questions (check-in 1)
 
 - **Resolved in CHANGE-01 (decision 17).** Group innate rows by target, not surface word? The 49 targets give 71 unique innate words,
@@ -103,7 +144,7 @@ Every judgement call made while building, newest at the bottom. Open questions a
 
 ## Open questions (CHANGE-01 check-in)
 
-- **OPEN: *ethiopian* sits in two innate groups.** *Ethiopia* and *Ethiopian* are both kept targets. The
+- **Resolved in CHANGE-02 (decision 25).** *ethiopian* sits in two innate groups. *Ethiopia* and *Ethiopian* are both kept targets. The
   surface word *ethiopian* is innate in group `ethiopia` (3 rows, suffix match) and in group `ethiopian`
   (17 rows), so GroupKFold can put the same word in train and test. It is the only surface word in more
   than one group. Options: merge the two targets into one group, or leave as is.
