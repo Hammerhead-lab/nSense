@@ -1,55 +1,101 @@
-# nSense
-This project is part the UVIC SENG 474 / 503 Datamining course. As a group project this repo serves as the living artifact, which stands as a monument to our journey in bias classification of embeddings using vector spaces.
+# nSense: Limits of Bias
 
+## 1. Intro / Overview
 
+A UVic SENG 474 / CSC 503 data mining project that uses contextual BERT 
+embeddings to classify words in sentences into three categories:
 
+- **Innate:** the group is part of the word's meaning, such as mother implying gender.
+- **Derived:** associated with a group through stereotypes rather than meaning, such
+  as associating nurse with gender.
+- **Neutral:** carries no group information under the project's label mapping.
 
-# Limits of Bias: Innate / Derived / Neutral Classifier
+We construct labeled examples from StereoSet, extract pretrained
+`bert-base-uncased` embeddings, and train a random forest. Five-fold grouped
+cross-validation evaluates held-out word groups against four baselines.
 
-UVic CSC503 data mining project. We sort words in sentences into three classes of bias, using
-`bert-base-uncased` embeddings and a random forest.
+## 2. Illustrative Sample
 
-| Class | Meaning | Example |
+These examples come from the generated dataset. Labels reflect the project's
+mapping of StereoSet annotations, not universal judgments about the words.
+
+| Sentence | Selected word | Dataset label |
 |---|---|---|
-| innate | The group is part of the word's meaning | *girls*, *queen*, *Muslim* |
-| derived | Linked to a group by stereotype, not by meaning | *soft*, *nurse* |
-| neutral | Carries no group information | *fish*, *chair* |
+| Ethiopian men are skinny | Ethiopian | innate |
+| Ethiopian men are skinny | skinny | derived |
+| Ethiopian men are floating | floating | neutral |
 
-See `docs/HANDOFF.md` for the spec and `docs/DECISIONS.md` for every judgement call.
+BERT reads the whole sentence; we average the selected word's token vectors into
+768 numbers, which the forest uses to predict a class.
 
-## Run
+## 3. Prerequisites / Package Requirements
 
-Everything runs in a CPU-only Docker image. The pinned BERT model and the pinned StereoSet
-revision are downloaded at build time, so the container runs offline.
+- Docker Desktop with Linux containers, or Docker Engine with the Compose plugin.
+- Internet access for the initial build and several GB of free disk space.
+- No local Python installation or GPU required; the Docker image runs on CPU.
+
+Docker installs Python 3.11, PyTorch 2.5.1, and the packages pinned in
+[requirements.txt](requirements.txt), including transformers, scikit-learn,
+NumPy, pandas, datasets, and spaCy.
+
+## 4. Installation Guide
+
+Clone or download this repository. **Open Docker Desktop** and wait for the
+engine to start. In a terminal at the repository root (beside `compose.yaml`):
 
 ```sh
-docker build -t limits-of-bias .
-
-# Full pipeline: data -> embed -> train -> baselines
-docker run --rm -v "$PWD/data:/app/data" -v "$PWD/results:/app/results" limits-of-bias
-
-# One stage (e.g. stage 1 only)
-docker run --rm -v "$PWD/data:/app/data" -v "$PWD/results:/app/results" limits-of-bias python src/data.py
+docker version
+docker compose version
+docker compose build
 ```
 
-To run edited code without rebuilding, also mount `-v "$PWD/src:/app/src" -v "$PWD/config.yaml:/app/config.yaml"`.
+The version commands only check installation; they do not start Docker.
+`docker version` must show both Client and Server. The build installs packages
+and downloads the pinned BERT model and StereoSet dataset.
 
-Settings live in `config.yaml`: seed, model and revision, layer, axes, dataset revision,
-and paths.
+## 5. Quick Start
 
-## Stages
+Run the complete pipeline from the same folder:
 
-| Stage | Reads | Writes |
-|---|---|---|
-| `src/data.py` | StereoSet (pinned revision) | `data/rows.csv`, `data/cross_axis_probe.csv`, `results/data_report.json` |
-| `src/embed.py` | `data/rows.csv` | `data/embeddings.npy`, `data/embeddings_meta.json` |
-| `src/train.py` | rows + embeddings | `results/` |
-| `src/baselines.py` | rows + embeddings | `results/` |
+```sh
+docker compose run --rm pipeline
+```
 
-`data/` and `results/` are generated and not committed. `embed.py` only needs to run once;
-teammates without a GPU can work from a shared `embeddings.npy`.
+This executes `data → embed → train → baselines` offline. The commands work in
+PowerShell and Git Bash. Embedding and training can take several minutes without
+printing progress, so do not assume something has gone wrong if you don't see 
+frequent updates.
 
-## Data and citation
+Outputs persist in your checkout's `data/` and `results/` folders:
+
+- **`results/comparison.csv`** — model and baseline scores.
+- `results/oof_predictions.csv` — held-out predictions and true labels.
+- `results/forest.joblib` — the trained random forest.
+
+The project produces files rather than a GUI. Settings live in `config.yaml`.
+For individual stages, first-run data review, and troubleshooting, see the
+[run guide](docs/RUNNING.md). See the [walkthrough](docs/WALKTHROUGH.md) for the
+method and [limitations](docs/LIMITATIONS.md) for interpreting results.
+
+## 6. Results
+
+Reference CPU run: 3,857 rows, seed 503, five-fold GroupKFold, using the pinned
+model and dataset in `config.yaml`. Scores below are held-out macro-F1
+(mean ± standard deviation across folds), from `results/comparison.csv`.
+
+| Model | Macro-F1 |
+|---|---|
+| Random forest | **0.861 ± 0.036** |
+| Single direction | 0.582 ± 0.048 |
+| Part of speech | 0.591 ± 0.044 |
+| Word frequency | 0.313 ± 0.021 |
+| Context only | 0.474 ± 0.018 |
+
+The forest's training macro-F1 is 1.000. These results describe this dataset and
+label mapping, and do not establish general-purpose bias detection. You can 
+reproduce the table with the Quick Start command above.
+
+## 7. Citation
 
 StereoSet, intrasentence split (`McGill-NLP/stereoset`), licensed CC BY-SA 4.0. The data is not
 stored in this repository.
@@ -60,3 +106,8 @@ stored in this repository.
 
 For known problems with StereoSet as a measure, see Blodgett et al. 2021,
 https://aclanthology.org/2021.acl-long.81.
+
+## 8. License
+
+Project code: [MIT License](docs/LICENSE), copyright 2026 Hammerhead.
+StereoSet data: CC BY-SA 4.0; downloaded at build time and not committed here.
