@@ -1,0 +1,9 @@
+Work distribution: 
+ 
+Xavier – Abstract, Section 1 Problem Definition, group morale, and solution planning
+
+Carson – Section 2 Proposed approach, Section 2.1 Observations (StereoSet), the README.md and compose.yaml in GitHub
+
+Harrison - Algorithm 1 Pseudocode, and Section 2.3 Random Forest Classifier
+
+Matthew Dunfee – The code base for the model, and Section 2.2 Encoding (BERT)
