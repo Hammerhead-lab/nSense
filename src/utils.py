@@ -1,12 +1,12 @@
 """Shared helpers: config loading, paths, seeding, and the folds and metrics every model uses."""
 import json
 import random
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import yaml
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
-from sklearn.model_selection import GroupKFold
 
 ROOT = Path(__file__).resolve().parent.parent
 CLASSES = ["innate", "derived", "neutral"]
@@ -42,9 +42,20 @@ def write_json(obj, p):
 
 
 def group_folds(groups, n_splits):
-    """GroupKFold on `group`. Hard check: no group is in both train and test of any fold."""
+    """Balance groups by size; break group ties alphabetically and fold ties by index."""
     groups = np.asarray(groups)
-    folds = list(GroupKFold(n_splits=n_splits).split(np.zeros(len(groups)), groups=groups))
+    counts = Counter(groups)
+    if not 2 <= n_splits <= len(counts):
+        raise ValueError("n_splits must be between 2 and the number of groups")
+    sizes = [0] * n_splits
+    mapping = {}
+    for group in sorted(counts, key=lambda g: (-counts[g], g)):
+        fold = min(range(n_splits), key=lambda k: (sizes[k], k))
+        mapping[group] = fold
+        sizes[fold] += counts[group]
+    fold_ids = np.array([mapping[g] for g in groups])
+    folds = [(np.flatnonzero(fold_ids != k), np.flatnonzero(fold_ids == k))
+             for k in range(n_splits)]
     for k, (tr, te) in enumerate(folds):
         overlap = set(groups[tr]) & set(groups[te])
         assert not overlap, f"fold {k}: groups in both train and test: {sorted(overlap)[:10]}"
