@@ -35,7 +35,7 @@ BERT reads the whole sentence; we average the selected word's token vectors into
 - No local Python installation or GPU required; the Docker image runs on CPU.
 
 Docker installs Python 3.11, PyTorch 2.5.1, and the packages pinned in
-[requirements.txt](requirements.txt), including transformers, scikit-learn,
+requirements.txt, including transformers, scikit-learn,
 NumPy, pandas, datasets, and spaCy.
 
 ## 4. Installation Guide
@@ -74,8 +74,8 @@ Outputs persist in your checkout's `data/` and `results/` folders:
 
 The project produces files rather than a GUI. Settings live in `config.yaml`.
 For individual stages, first-run data review, and troubleshooting, see the
-[run guide](docs/RUNNING.md). See the [walkthrough](docs/WALKTHROUGH.md) for the
-method and [limitations](docs/LIMITATIONS.md) for interpreting results.
+[run guide](RUNNING.md). See the [walkthrough](WALKTHROUGH.md) for the
+method and [limitations](LIMITATIONS.md) for interpreting results.
 
 ## 6. Results
 
@@ -85,11 +85,11 @@ model and dataset in `config.yaml`. Scores below are held-out macro-F1
 
 | Model | Macro-F1 |
 |---|---|
-| Random forest | **0.861 ± 0.036** |
-| Single direction | 0.582 ± 0.048 |
-| Part of speech | 0.591 ± 0.044 |
-| Word frequency | 0.313 ± 0.021 |
-| Context only | 0.474 ± 0.018 |
+| Random forest | **0.863 ± 0.020** |
+| Single direction | 0.604 ± 0.044 |
+| Part of speech | 0.612 ± 0.039 |
+| Word frequency | 0.263 ± 0.053 |
+| Context only | 0.475 ± 0.021 |
 
 The forest's training macro-F1 is 1.000. These results describe this dataset and
 label mapping, and do not establish general-purpose bias detection. You can 
@@ -109,5 +109,5 @@ https://aclanthology.org/2021.acl-long.81.
 
 ## 8. License
 
-Project code: [MIT License](docs/LICENSE), copyright 2026 Hammerhead.
+Project code: [MIT License](LICENSE), copyright 2026 Hammerhead.
 StereoSet data: CC BY-SA 4.0; downloaded at build time and not committed here.
