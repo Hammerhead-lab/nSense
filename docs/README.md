@@ -73,8 +73,7 @@ Outputs persist in your checkout's `data/` and `results/` folders:
 - `results/forest.joblib` — the trained random forest.
 
 The project produces files rather than a GUI. Settings live in `config.yaml`.
-For individual stages, first-run data review, and troubleshooting, see the
-[run guide](RUNNING.md). See the [walkthrough](WALKTHROUGH.md) for the
+For individual stages, first-run data review, and troubleshooting. See the [walkthrough](WALKTHROUGH.md) for the
 method and [limitations](LIMITATIONS.md) for interpreting results.
 
 ## 6. Results
