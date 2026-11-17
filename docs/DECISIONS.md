@@ -113,10 +113,13 @@ Every judgement call made while building, newest at the bottom. Open questions a
 29. **Context vector.** The mean of every non-special token outside the span (CHANGE-02). `embed.py`
     asserts that each row has at least one such token. Saved to `data/context_embeddings.npy`
     (`paths.context_embeddings`).
-30. **Shared folds and metrics live in `utils.py`.** `group_folds` (GroupKFold plus the hard no-overlap
-    assertion) and `evaluate` (per-fold and mean ± std metrics) are used by both `train.py` and
-    `baselines.py`, so the folds and metrics are the same by construction. Stages still do not import
-    each other. GroupKFold is deterministic, so no seed is involved.
+30. **Shared folds and metrics live in `utils.py`.** `group_folds` and `evaluate` (per-fold and
+    mean ± std metrics) are used by both `train.py` and `baselines.py`, so the folds and metrics are the
+    same by construction. Stages still do not import each other. *Corrected in CHANGE-03:* the folds are
+    no longer `GroupKFold`. Since `4ceeab5` they are a deterministic size-balanced group assignment
+    (largest group first, to the currently smallest fold; ties by group name, then fold index), with the
+    hard no-overlap assertion. No seed is involved. Since CHANGE-03 it runs on the dev set only
+    (decisions 35 and 37).
 31. **Permutation importance runs with `n_jobs=-1`** across features, on each held-out fold. With an
     integer `random_state` the result does not depend on the number of workers. `importances.csv` holds
     the mean across folds and the std across folds per feature, sorted by mean.
@@ -130,6 +133,85 @@ Every judgement call made while building, newest at the bottom. Open questions a
     (mean over folds) and train macro-F1. `baselines.py` reads the forest row from
     `results/train_report.json`. Full per-fold reports are in `train_report.json` and
     `baselines_report.json`.
+
+## CHANGE-03 (dev/test split, label granularity, robustness, baselines)
+
+34. **Where the split is written.** `utils.split_report` writes `results/split.csv` and
+    `results/split_report.json`; `train.py` calls it, as the first stage that splits. `baselines.py`
+    and `final.py` recompute the same split with `dev_folds` / `dev_test_split` (deterministic, seeded),
+    so no stage reads another stage's split file. The report also has `class_test_share` (the share of
+    each class's rows that lands in test), for the check-in 1 flag on classes under 10%.
+35. **Test fold: the most class-balanced candidate (team amendment at check-in 1).**
+    `StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=seed)` gives 5 candidate test folds.
+    Each is scored on labels only (never model output): `max_gap` = the largest |class share in the fold
+    − overall class share| over the three classes, in percentage points. Only folds with a test share
+    within 15–25% are eligible. The eligible fold with the smallest `max_gap` wins; ties go to the lowest
+    fold index. Some groups hold rows of more than one class (decision 12), so stratification alone is
+    approximate: the first fold (the CHANGE-03 default) had innate at 42.8% of test against 33.5%
+    overall. On the pinned data, gaps are 9.33, 8.70, 10.01, 11.50, 10.45 pp for folds 0–4, all
+    eligible, so fold 1 is chosen (test share 17.3%, 666 rows). All candidates and the chosen index are
+    in `split_report.json`. Side effect: fold 1 has no innate × religion rows in the test set.
+36. **`forest.joblib` is removed in Change B, not C.** It was fit on all rows, test rows included, which
+    Change B forbids for `train.py`.
+37. **Fold indices stay in `rows.csv` row space.** `dev_folds` maps `group_folds` output back with
+    `dev_idx`, so `evaluate` and `oof_predictions.csv` (`row` column) keep pointing into `rows.csv`.
+    `oof_predictions.csv` holds dev rows only; `train_report.json` `n_rows` is the dev row count.
+38. **Baseline features are computed for dev rows only.** POS tags and Zipf frequencies are computed for
+    dev rows; test rows keep zero placeholders that no fold ever indexes. The POS one-hot columns are the
+    tags seen in dev, and `pos_tag_counts` counts dev rows. The single-direction cosine is computed only
+    for the current fold's train and validation rows.
+39. **Binary labels.** `to_binary` reads `binary_map` from `config.yaml`; `BINARY = [bias, neutral]`
+    fixes the order of per-class metrics and the 2×2 confusion matrix. `binary_metrics` always maps the
+    true three-class labels itself, so callers pass `class` unchanged.
+40. **Each forest is tuned on its own native metric.** The three-class RF is selected on CV three-class
+    macro-F1 and the binary RF on CV bias-vs-neutral macro-F1. Each model is then the best version of
+    itself for the task it was built for, so RQ1 compares two honestly tuned models. Selecting the
+    three-class RF on its collapsed bias-vs-neutral score would tune it toward the RQ1 quantity and make
+    the gap look smaller than a three-class user would see. The binary RF has no three-class score to
+    select on.
+41. **Sweep mechanics.** Both forests use the same dev folds and `random_state=seed` at every
+    configuration. Within 0.001 of the best mean, fewer trees win, then the shallower depth (unlimited
+    counts as deepest). The chosen three-class configuration is refit fold by fold for permutation
+    importance and OOF predictions; `train.py` asserts its collapsed F1 equals the sweep's, so the
+    refit is the same model. `max_depth` is written `none` in `rf_sweep.csv` and `∞` in the figures.
+    `train_report.json` gains `best_params`, `selection`, `collapsed_bias_vs_neutral_f1` and
+    `binary_rf` (the chosen binary RF's CV scores).
+42. **Figures.** Colours are slots 1–4 of the dataviz reference palette (blue, orange, aqua, yellow) in
+    fixed order, with a distinct marker per series so identity is not colour alone. In `rf_sweep` the
+    depth series are offset slightly on x so the error bars do not overlap; train lines are dashed with
+    hollow markers. Legends sit outside the plot area. 300 dpi PNG; PDF with
+    `metadata={"CreationDate": None}`. The palette validator script needs Node.js, which is not
+    installed here, so the palette's documented passing order is used without rerunning it.
+43. **matplotlib pin.** `matplotlib==3.9.2` (supports `numpy==1.26.4`) plus the dependency versions pip
+    resolved for it inside the image: `contourpy==1.3.3`, `cycler==0.12.1`, `fonttools==4.68.0`,
+    `kiwisolver==1.5.1`, `pillow==13.0.0`, `pyparsing==3.3.3`. All are added to the full lock;
+    `pip check` is clean.
+44. **More shared code in `utils.py`.** `final.py` must rebuild the baseline features, and stages do not
+    import each other, so `forest`, `direction_feature`, `pos_tags`, `one_hot`, `collapsed_f1` and
+    `stat` moved to `utils.py`. Behaviour is unchanged: `one_hot` over the sorted dev tags gives the same
+    columns as the old `pd.get_dummies`.
+45. **LR and k-NN selection.** Ties are within 0.001 of the best mean macro-F1, the same tolerance as the
+    forests; the simpler model wins (smaller C, larger k). Convergence warnings are caught per fold and
+    recorded in `baselines_report.json` (`convergence_warning_folds`) and as a count in
+    `baseline_sweeps.csv`; the grid is not changed.
+46. **`baselines.py` now requires `train_report.json`.** Context-only uses the three-class forest's
+    chosen `best_params`, so `train.py` must run first (the Docker `CMD` order already does).
+47. **`comparison.csv`.** `bias_vs_neutral_f1` is the mean over folds of each three-class model's
+    collapsed score. The `random_forest_binary` row fills only that column, with the chosen binary RF's
+    mean CV bias-vs-neutral F1.
+48. **Test-time features in `final.py`.** The single-direction centroids come from all dev rows. POS
+    one-hot columns are the tags seen in dev rows; a test tag never seen in dev becomes an all-zero row.
+    Zipf frequency needs no fitting. Every tree baseline keeps its fixed configuration.
+49. **Best baseline for the summary's confusion matrix** is the baseline with the highest dev-CV
+    macro-F1 in `comparison.csv`, not the highest test score, so nothing is chosen on the test set.
+50. **`test_comparison.csv` columns.** `model, labelling, macro_f1_3class, bias_vs_neutral_f1, auc,
+    f1_innate, f1_derived, f1_neutral, f1_bias_bvn, f1_neutral_bvn`. The binary RF row leaves the
+    three-class columns empty. AUC is macro one-vs-rest for three-class models and `bias`-positive for
+    the binary RF, with `predict_proba` columns checked against `clf.classes_` and reordered.
+    scikit-learn rejects unsorted `labels` for multiclass AUC, so the call uses `sorted(CLASSES)`
+    (and the probability columns in that order) instead of `CLASSES`; the macro average is the same.
+51. **`summary.md` has no timestamps.** It does contain `os.cpu_count()`, so it is byte-identical across
+    reruns on one machine but not across machines.
 
 ## Open questions (check-in 1)
 

@@ -34,4 +34,4 @@ ENV HF_HUB_OFFLINE=1 \
     HF_DATASETS_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
-CMD ["sh", "-c", "python src/data.py && python src/embed.py && python src/train.py && python src/baselines.py"]
+CMD ["sh", "-c", "python src/data.py && python src/embed.py && python src/train.py && python src/baselines.py && python src/final.py"]
