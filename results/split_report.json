@@ -1,0 +1,134 @@
+{
+  "test_share": 0.17267306196525797,
+  "chosen_test_fold": 1,
+  "overall_class_pct": {
+    "innate": 33.47161005963184,
+    "derived": 32.95307233601245,
+    "neutral": 33.57531760435572
+  },
+  "candidate_test_folds": [
+    {
+      "fold": 0,
+      "test_share": 0.21985999481462276,
+      "class_pct": {
+        "innate": 42.806603773584904,
+        "derived": 25.943396226415093,
+        "neutral": 31.25
+      },
+      "max_gap": 9.334993713953061,
+      "eligible": true
+    },
+    {
+      "fold": 1,
+      "test_share": 0.17267306196525797,
+      "class_pct": {
+        "innate": 24.774774774774773,
+        "derived": 38.13813813813814,
+        "neutral": 37.08708708708709
+      },
+      "max_gap": 8.69683528485707,
+      "eligible": true
+    },
+    {
+      "fold": 2,
+      "test_share": 0.16463572724915737,
+      "class_pct": {
+        "innate": 23.46456692913386,
+        "derived": 38.74015748031496,
+        "neutral": 37.79527559055118
+      },
+      "max_gap": 10.007043130497983,
+      "eligible": true
+    },
+    {
+      "fold": 3,
+      "test_share": 0.224786103189007,
+      "class_pct": {
+        "innate": 42.79123414071511,
+        "derived": 21.453287197231834,
+        "neutral": 35.75547866205306
+      },
+      "max_gap": 11.499785138780613,
+      "eligible": true
+    },
+    {
+      "fold": 4,
+      "test_share": 0.21804511278195488,
+      "class_pct": {
+        "innate": 28.894173602853744,
+        "derived": 43.40071343638526,
+        "neutral": 27.705112960760996
+      },
+      "max_gap": 10.447641100372813,
+      "eligible": true
+    }
+  ],
+  "splits": {
+    "dev": {
+      "rows": 3191,
+      "groups": 1025,
+      "class_counts": {
+        "innate": 1126,
+        "derived": 1017,
+        "neutral": 1048
+      },
+      "class_pct": {
+        "innate": 35.286743967408334,
+        "derived": 31.870886869319964,
+        "neutral": 32.842369163271705
+      },
+      "class_by_axis": {
+        "innate": {
+          "gender": 198,
+          "race/nationality": 850,
+          "religion": 78
+        },
+        "derived": {
+          "gender": 205,
+          "race/nationality": 750,
+          "religion": 62
+        },
+        "neutral": {
+          "gender": 207,
+          "race/nationality": 780,
+          "religion": 61
+        }
+      }
+    },
+    "test": {
+      "rows": 666,
+      "groups": 257,
+      "class_counts": {
+        "innate": 165,
+        "derived": 254,
+        "neutral": 247
+      },
+      "class_pct": {
+        "innate": 24.774774774774773,
+        "derived": 38.13813813813814,
+        "neutral": 37.087087087087085
+      },
+      "class_by_axis": {
+        "innate": {
+          "gender": 55,
+          "race/nationality": 110
+        },
+        "derived": {
+          "gender": 49,
+          "race/nationality": 190,
+          "religion": 15
+        },
+        "neutral": {
+          "gender": 48,
+          "race/nationality": 182,
+          "religion": 17
+        }
+      }
+    }
+  },
+  "class_test_share": {
+    "innate": 0.12780790085205268,
+    "derived": 0.1998426435877262,
+    "neutral": 0.19073359073359072
+  }
+}

@@ -58,19 +58,22 @@ and downloads the pinned BERT model and StereoSet dataset.
 Run the complete pipeline from the same folder:
 
 ```sh
-docker compose run --rm pipeline
+docker compose up --build
 ```
 
-This executes `data → embed → train → baselines` offline. The commands work in
+(`docker compose run --rm pipeline` also works once the image is built.) This executes
+`data → embed → train → baselines → final` offline. The commands work in
 PowerShell and Git Bash. Embedding and training can take several minutes without
 printing progress, so do not assume something has gone wrong if you don't see 
 frequent updates.
 
 Outputs persist in your checkout's `data/` and `results/` folders:
 
-- **`results/comparison.csv`** — model and baseline scores.
-- `results/oof_predictions.csv` — held-out predictions and true labels.
-- `results/forest.joblib` — the trained random forest.
+- **[`results/summary.md`](../results/summary.md)** — start here: the split, the test-set results,
+  the random forest study and every model's scores, in one file.
+- `results/comparison.csv` — model and baseline scores (cross-validation on the dev set).
+- `results/test_comparison.csv` — every model's scores on the held-out test set.
+- `results/oof_predictions.csv` — dev-set held-out predictions and true labels.
 
 The project produces files rather than a GUI. Settings live in `config.yaml`.
 For individual stages, first-run data review, and troubleshooting. See the [walkthrough](WALKTHROUGH.md) for the
@@ -78,21 +81,7 @@ method and [limitations](LIMITATIONS.md) for interpreting results.
 
 ## 6. Results
 
-Reference CPU run: 3,857 rows, seed 503, five-fold GroupKFold, using the pinned
-model and dataset in `config.yaml`. Scores below are held-out macro-F1
-(mean ± standard deviation across folds), from `results/comparison.csv`.
-
-| Model | Macro-F1 |
-|---|---|
-| Random forest | **0.863 ± 0.020** |
-| Single direction | 0.604 ± 0.044 |
-| Part of speech | 0.612 ± 0.039 |
-| Word frequency | 0.263 ± 0.053 |
-| Context only | 0.475 ± 0.021 |
-
-The forest's training macro-F1 is 1.000. These results describe this dataset and
-label mapping, and do not establish general-purpose bias detection. You can 
-reproduce the table with the Quick Start command above.
+All current results (split, test-set scores, the random forest study and every model) are in [`results/summary.md`](../results/summary.md).
 
 ## 7. Citation
 

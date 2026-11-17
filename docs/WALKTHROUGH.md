@@ -38,9 +38,9 @@ For *Ethiopian* that gives 768 numbers starting `0.242, 0.601, -0.546, -0.573, �
 vector per row, the average of every other token in the sentence (the "context vector"), which only the
 context-only baseline uses.
 
-**Predictions.** In cross-validation each row is predicted by a forest that never saw its group. All three
-rows came out right: *skinny* → derived (fold 0), *Ethiopian* → innate (fold 1), *floating* → neutral
-(fold 2). See `results/oof_predictions.csv`, rows 0–2.
+**Predictions.** All three rows are in the dev set. In cross-validation each row is predicted by a forest
+that never saw its group: *Ethiopian* → innate (fold 1) and *floating* → neutral (fold 4) are right;
+*skinny* → neutral (fold 0) is wrong, it is derived. See `results/oof_predictions.csv`, rows 0–2.
 
 ## What each file does
 
@@ -48,9 +48,10 @@ rows came out right: *skinny* → derived (fold 0), *Ethiopian* → innate (fold
 |---|---|---|
 | `src/data.py` | StereoSet (pinned revision) | `data/rows.csv`, `data/cross_axis_probe.csv`, `results/data_report.json` |
 | `src/embed.py` | `data/rows.csv` | `data/embeddings.npy` (span), `data/context_embeddings.npy`, `data/embeddings_meta.json` |
-| `src/train.py` | rows + span vectors | `results/train_report.json`, `importances.csv`, `oof_predictions.csv`, `forest.joblib` |
-| `src/baselines.py` | rows + both vector files + `train_report.json` | `results/baselines_report.json`, `results/comparison.csv` |
-| `src/utils.py` | `config.yaml` | nothing; holds config loading, seeding, folds and metrics |
+| `src/train.py` | rows + span vectors (dev rows only) | `results/split.csv`, `split_report.json`, `rf_sweep.csv`, `rf_sweep.{png,pdf}`, `label_gap.{png,pdf}`, `train_report.json`, `importances.csv`, `oof_predictions.csv` |
+| `src/baselines.py` | rows + both vector files (dev rows only) + `train_report.json` | `results/baselines_report.json`, `baseline_sweeps.csv`, `comparison.csv` |
+| `src/final.py` | rows + both vector files + every report above; **the only stage that reads the test set** | `results/test_report.json`, `test_comparison.csv`, `summary.md` |
+| `src/utils.py` | `config.yaml` | nothing; holds config loading, seeding, the dev/test split, folds, metrics and shared features |
 
 All settings (seed, model, revisions, paths) are in `config.yaml`.
 
@@ -60,8 +61,23 @@ If *mother* is in the training set and *mothers* is in the test set, the forest 
 general: it has already seen almost the same vector. Scores would look better than they are, mostly on
 the innate class, which has only 48 groups. So every row has a `group`: the target for innate rows and the
 spaCy lemma for derived and neutral rows (*mothers* → *mother*). Groups that share a word are merged.
-`GroupKFold` then keeps each group entirely in train or entirely in test, and the code asserts this for
-every fold.
+
+The split happens twice, always by group. First a **test set** is locked: a `StratifiedGroupKFold` on
+the class gives five candidate folds, and the one whose class mix is closest to the overall mix (and
+holds 15–25% of rows) becomes the test set, about a sixth of the rows. Everything else is the **dev
+set**. Every choice (the forest's settings, the baselines' settings) is made by 5-fold grouped
+cross-validation on the dev set only. Then `final.py` fits each model once on all dev rows and scores it
+on the test set exactly once. The code asserts that no group is in both dev and test, that no group is in
+both train and validation in any dev fold, and that no dev fold contains a test row.
+
+## Binary vs three-class labels
+
+To ask whether splitting *bias* into *innate* and *derived* costs anything, we train a second forest on
+two labels, *bias* (innate + derived) and *neutral*. The rows, vectors, split and folds are exactly the
+same; the labels are merged at training time with `binary_map` in `config.yaml`, and `rows.csv` is not
+changed. The three-class forest's predictions are merged the same way, so both can be scored on bias vs
+neutral. The difference between the two is the "gap". The three-class forest also reports innate and
+derived F1, which the binary forest cannot produce.
 
 ## The baselines, one line each
 
@@ -85,10 +101,11 @@ To run edited code without rebuilding, add `-v "$PWD/src:/app/src" -v "$PWD/conf
 To run one stage, append e.g. `python src/train.py`.
 
 Local: `pip install -r requirements.txt` (plus `torch==2.5.1`), then run `python src/data.py`,
-`src/embed.py`, `src/train.py` and `src/baselines.py` in that order from the project root. `data.py`
+`src/embed.py`, `src/train.py`, `src/baselines.py` and `src/final.py` in that order from the project
+root. `data.py`
 downloads StereoSet and `embed.py` downloads BERT on the first run.
 
-Results land in `results/`. Start with `comparison.csv`, then `train_report.json`.
+Results land in `results/`. Start with `summary.md`, then `comparison.csv` and `test_comparison.csv`.
 
 ## If something breaks
 

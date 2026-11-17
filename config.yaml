@@ -18,7 +18,22 @@ axis_labels:
   race: race/nationality
 
 # Evaluation
-n_splits: 5
+n_splits: 5          # CV folds on the dev set
+test_n_splits: 5     # the test set is one fold of 5 (about 20%)
+
+# Label granularity (RQ1): binary labels are derived from `class` at training time.
+binary_map: {innate: bias, derived: bias, neutral: neutral}
+
+# Random forest study (RQ2): every other parameter is the scikit-learn default.
+rf_grid:
+  n_estimators: [100, 300, 500]
+  max_depth: [5, 10, 20, null]   # null = unlimited (the current setting)
+
+# Conventional baselines on the span embeddings (three-class only), StandardScaler inside the pipeline.
+lr_grid:
+  C: [0.1, 1, 10]
+knn_grid:
+  n_neighbors: [1, 3, 5, 7, 9]
 
 # Paths (relative to the project root)
 paths:

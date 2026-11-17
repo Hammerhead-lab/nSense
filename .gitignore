@@ -2,6 +2,15 @@ data/*
 !data/.gitkeep
 results/*
 !results/summary.md
+!results/rf_sweep.png
+!results/rf_sweep.pdf
+!results/label_gap.png
+!results/label_gap.pdf
+!results/rf_sweep.csv
+!results/comparison.csv
+!results/baseline_sweeps.csv
+!results/test_comparison.csv
+!results/split_report.json
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
