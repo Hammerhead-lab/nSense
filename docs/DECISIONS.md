@@ -213,6 +213,39 @@ Every judgement call made while building, newest at the bottom. Open questions a
 51. **`summary.md` has no timestamps.** It does contain `os.cpu_count()`, so it is byte-identical across
     reruns on one machine but not across machines.
 
+## CHANGE-04 (bias-vs-neutral AUC for RQ1)
+
+52. **Bias score.** `utils.bias_score(proba, classes)` sums the `predict_proba` columns whose class maps
+    to `bias` under `binary_map`, with columns found by name in the model's `classes_`, never by
+    position: P(innate) + P(derived) for a three-class model, P(bias) for the binary RF. It asserts that
+    the column count matches `classes_`, that every class is known, and that at least one bias column
+    exists. The AUC's true label is `to_binary(class) == "bias"`.
+53. **Reported only.** Every CHANGE-04 metric (CV AUC, test AUC, `bvn_auc`, operating points, the
+    matched-threshold check) is a measurement. The split, folds, grids, chosen configurations and
+    selection rules are those of CHANGE-03, and nothing reads these numbers to make a choice.
+54. **CV AUC without changing any F1.** The three-class RF's bias scores come from the same per-fold
+    fits `train.py` already makes for permutation importance and OOF predictions (no extra fit). The
+    binary RF is refit per fold at its chosen configuration with `random_state=seed`; `train.py` asserts
+    that the refit's mean and std of bias-vs-neutral F1 equal the sweep's to 1e-12. The paired
+    difference is three-class minus binary, per fold, then mean and (population) std, like every other
+    `stat`. Stored in `train_report.json` under `rq1_auc_cv`, with the per-fold values.
+55. **Operating points.** From each model's actual test predictions (the three-class RF's collapsed
+    with `to_binary`): bias precision, bias recall, neutral recall, false alarms (neutral predicted bias),
+    misses (bias predicted neutral) and FPR = false alarms / neutral rows.
+56. **Matched threshold.** `roc_curve(..., drop_intermediate=False)` on the binary RF's test bias
+    scores; among points with FPR ≤ the three-class RF's default FPR, the highest TPR. The binary
+    threshold at that point is also recorded (`null` if it is the curve's infinite start point).
+57. **The three-class default point need not lie on its ROC curve.** The three-class RF predicts by
+    argmax over three probabilities, not by a cutoff on P(innate) + P(derived): a row with
+    P = (0.30, 0.25, 0.45) is predicted neutral although its bias score is 0.55. The point is plotted at
+    its actual (FPR, recall), so it can sit off the curve.
+58. **`bvn_auc` for the binary RF** is its bias AUC, the same number as its `auc` column; `final.py`
+    asserts the two agree, which also checks `bias_score` against the CHANGE-03 P(bias) lookup.
+59. **ROC figure.** Same style as the CHANGE-03 figures: binary RF in slot 1 (blue, circle) and the
+    collapsed three-class RF in slot 2 (orange, square), matching `label_gap`; default operating points
+    as larger markers with a white edge; grey dashed chance diagonal; legend inside the lower right,
+    where ROC curves leave room.
+
 ## Open questions (check-in 1)
 
 - **Resolved in CHANGE-01 (decision 17).** Group innate rows by target, not surface word? The 49 targets give 71 unique innate words,

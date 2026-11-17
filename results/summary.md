@@ -42,6 +42,29 @@ Same vectors, same learner, same rows. The binary RF is trained on `binary_map(c
 
 Gap (collapsed 3-class − binary): **+0.027**. Across all 12 configurations (CV): [label_gap.png](label_gap.png).
 
+### RQ1: ranking vs cutoff
+
+Bias-vs-neutral AUC uses a bias score: P(innate) + P(derived) for the 3-class RF, P(bias) for the binary RF. It is threshold-free, so it separates *ranking* bias above neutral from where each model's default cutoff sits. Reported only; no model choice depends on it.
+
+Dev CV, chosen configurations, mean ± std over the same 5 folds:
+
+|  | 3-class RF, collapsed | binary RF | paired difference (3-class − binary) |
+|---|---|---|---|
+| AUC | 0.974 ± 0.004 | 0.973 ± 0.006 | +0.000 ± 0.004 |
+
+Test set: 3-class RF, collapsed 0.971; binary RF 0.967 (difference +0.003).
+
+Default operating points on the test set (from each model's actual predictions):
+
+| model | bias precision | bias recall | neutral recall | false alarms | misses |
+|---|---|---|---|---|---|
+| 3-class RF, collapsed | 0.933 | 0.938 | 0.887 | 28 | 26 |
+| binary RF | 0.882 | 0.967 | 0.781 | 54 | 14 |
+
+Matched threshold: at the 3-class RF's default false-alarm rate (0.113), the 3-class RF's bias recall is 0.938; the binary RF's best bias recall on its test ROC curve without exceeding that rate is 0.959 (at FPR 0.109).
+
+Figure: [roc_bvn.png](roc_bvn.png).
+
 ## 4. RQ2: robustness across random forest configurations (dev CV)
 
 | max_depth | trees | 3-class val F1 | 3-class train F1 | collapsed bvn F1 | binary val bvn F1 | binary train bvn F1 | gap |

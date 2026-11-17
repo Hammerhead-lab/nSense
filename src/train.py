@@ -14,9 +14,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.inspection import permutation_importance
+from sklearn.metrics import roc_auc_score
 
-from utils import (CLASSES, binary_metrics, collapsed_f1, dev_folds, evaluate, fold_metrics,
-                   forest, load_config, path, set_seed, split_report, stat, to_binary, write_json)
+from utils import (CLASSES, bias_score, binary_metrics, collapsed_f1, dev_folds, evaluate,
+                   fold_metrics, forest, load_config, path, set_seed, split_report, stat,
+                   to_binary, write_json)
 
 matplotlib.use("Agg")
 
@@ -66,6 +68,18 @@ def sweep_config(X, y, folds, seed, params):
         s = stat(v)
         row[f"{name}_mean"], row[f"{name}_std"] = s["mean"], s["std"]
     return row
+
+
+def binary_auc_cv(X, y, folds, seed, params):
+    """Per-fold bias-vs-neutral AUC and macro-F1 of the binary RF, refit at `params`."""
+    yb = to_binary(y)
+    auc, f1 = [], []
+    for tr, te in folds:
+        clf = forest(seed, **params).fit(X[tr], yb[tr])
+        auc.append(roc_auc_score(yb[te] == "bias", bias_score(clf.predict_proba(X[te]),
+                                                              clf.classes_)))
+        f1.append(binary_metrics(y[te], clf.predict(X[te]))["macro_f1"])
+    return auc, f1
 
 
 def select(rows, params, col):
@@ -168,13 +182,15 @@ def main():
     best3, row3 = select(sweep, params, "three_val_macro_f1_mean")
     best2, row2 = select(sweep, params, "binary_val_bvn_f1_mean")
 
-    importances = []
+    importances, auc3 = [], []
 
     def fit_predict(tr, te):
         clf = forest(seed, **best3).fit(X[tr], y[tr])
         imp = permutation_importance(clf, X[te], y[te], scoring="f1_macro", n_repeats=5,
                                      random_state=seed, n_jobs=-1)
         importances.append(imp.importances_mean)
+        auc3.append(roc_auc_score(to_binary(y[te]) == "bias",
+                                  bias_score(clf.predict_proba(X[te]), clf.classes_)))
         print(f"  fold {len(importances) - 1} done")
         return clf.predict(X[tr]), clf.predict(X[te])
 
@@ -182,6 +198,15 @@ def main():
     collapsed = collapsed_f1(y, oof, folds)
     assert abs(collapsed["mean"] - row3["three_collapsed_bvn_f1_mean"]) < 1e-12, \
         "chosen-configuration refit does not match the sweep"
+    auc2, f1_2 = binary_auc_cv(X, y, folds, seed, best2)
+    assert abs(stat(f1_2)["mean"] - row2["binary_val_bvn_f1_mean"]) < 1e-12 and \
+        abs(stat(f1_2)["std"] - row2["binary_val_bvn_f1_std"]) < 1e-12, \
+        "binary refit does not match the sweep"
+    diff = np.array(auc3) - np.array(auc2)
+    rq1_auc_cv = {"three_class_collapsed": stat(auc3), "binary": stat(auc2),
+                  "paired_difference": stat(diff),
+                  "folds": [{"three_class_collapsed": a3, "binary": a2, "difference": float(d)}
+                            for a3, a2, d in zip(auc3, auc2, diff)]}
     write_json({"model": "random_forest", "n_rows": len(dev_idx),
                 "best_params": {"three_class": best3, "binary": best2},
                 "selection": {"three_class": "max mean CV 3-class macro-F1",
@@ -192,6 +217,7 @@ def main():
                                                          "std": row2["binary_val_bvn_f1_std"]},
                               "train_bias_vs_neutral_f1": {"mean": row2["binary_train_bvn_f1_mean"],
                                                            "std": row2["binary_train_bvn_f1_std"]}},
+                "rq1_auc_cv": rq1_auc_cv,
                 **report},
                out / "train_report.json")
 
@@ -225,6 +251,15 @@ def main():
     print(f"  confusion matrix (rows true, cols pred, {CLASSES}):")
     for c, r in zip(CLASSES, s["confusion_matrix_total"]):
         print(f"    {c:>8} {r}")
+
+    print("\nRQ1 bias-vs-neutral AUC, CV on the dev set (chosen configurations)")
+    print(f"  {'fold':>4}  {'3-class':>8}  {'binary':>8}  {'3-class - binary':>16}")
+    for k, f in enumerate(rq1_auc_cv["folds"]):
+        print(f"  {k:>4}  {f['three_class_collapsed']:8.4f}  {f['binary']:8.4f}"
+              f"  {f['difference']:+16.4f}")
+    a3, a2, d = (rq1_auc_cv[k] for k in ("three_class_collapsed", "binary", "paired_difference"))
+    print(f"  mean  {a3['mean']:8.4f}  {a2['mean']:8.4f}  {d['mean']:+16.4f}")
+    print(f"  std   {a3['std']:8.4f}  {a2['std']:8.4f}  {d['std']:16.4f}")
     print(f"\nWrote {out}/split.csv, split_report.json, rf_sweep.csv, rf_sweep.png/.pdf,"
           " label_gap.png/.pdf, train_report.json, importances.csv, oof_predictions.csv")
 

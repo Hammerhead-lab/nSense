@@ -6,6 +6,8 @@ results/*
 !results/rf_sweep.pdf
 !results/label_gap.png
 !results/label_gap.pdf
+!results/roc_bvn.png
+!results/roc_bvn.pdf
 !results/rf_sweep.csv
 !results/comparison.csv
 !results/baseline_sweeps.csv

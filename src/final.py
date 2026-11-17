@@ -8,21 +8,29 @@ Writes results/test_report.json, results/test_comparison.csv and results/summary
 import json
 import os
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 from wordfreq import zipf_frequency
 
-from utils import (BINARY, CLASSES, binary_metrics, dev_test_split, direction_feature,
-                   fold_metrics, forest, load_config, one_hot, path, pos_tags, set_seed,
-                   to_binary, write_json)
+from utils import (BINARY, CLASSES, bias_score, binary_metrics, dev_test_split,
+                   direction_feature, fold_metrics, forest, load_config, one_hot, path, pos_tags,
+                   set_seed, to_binary, write_json)
+
+matplotlib.use("Agg")
 
 THIN = 20  # class x axis cells in the test set below this are not reported per axis
+# Same figure style as train.py: dataviz reference palette slots 1-2, markers double-encode.
+COLORS = ["#2a78d6", "#eb6834"]
+MARKERS = ["o", "s"]
+INK, MUTED, GRID, SURFACE = "#0b0b0b", "#8a8984", "#e4e3df", "#ffffff"
 
 
 def proba_in(clf, F, classes):
@@ -33,7 +41,10 @@ def proba_in(clf, F, classes):
 
 
 def three_class(clf, F, y, dev, test):
-    """Fit on dev rows, predict test rows once: three-class and collapsed metrics, and AUC."""
+    """Fit on dev rows, predict test rows once: three-class and collapsed metrics, and AUC.
+
+    Also returns the test rows' bias scores and collapsed (bias/neutral) predictions.
+    """
     clf.fit(F[dev], y[dev])
     p = clf.predict(F[test])
     m = fold_metrics(y[dev], clf.predict(F[dev]), y[test], p)
@@ -42,17 +53,71 @@ def three_class(clf, F, y, dev, test):
     labels = sorted(CLASSES)
     m["auc_ovr_macro"] = roc_auc_score(y[test], proba_in(clf, F[test], labels),
                                        multi_class="ovr", average="macro", labels=labels)
-    return m
+    score = bias_score(clf.predict_proba(F[test]), clf.classes_)
+    m["bvn_auc"] = roc_auc_score(to_binary(y[test]) == "bias", score)
+    return m, score, to_binary(p)
 
 
 def binary(clf, F, y, dev, test):
-    """Fit on to_binary(dev labels), predict test rows once: bias-vs-neutral metrics and AUC."""
+    """Fit on to_binary(dev labels), predict test rows once: bias-vs-neutral metrics and AUC.
+
+    Also returns the test rows' bias scores and predictions.
+    """
     yb = to_binary(y)
     clf.fit(F[dev], yb[dev])
-    m = binary_metrics(y[test], clf.predict(F[test]))
+    p = clf.predict(F[test])
+    m = binary_metrics(y[test], p)
     m["train_macro_f1"] = binary_metrics(y[dev], clf.predict(F[dev]))["macro_f1"]
     m["auc"] = roc_auc_score(yb[test] == "bias", proba_in(clf, F[test], BINARY)[:, 0])
-    return m
+    score = bias_score(clf.predict_proba(F[test]), clf.classes_)
+    m["bvn_auc"] = roc_auc_score(yb[test] == "bias", score)
+    assert m["bvn_auc"] == m["auc"], "bias_score disagrees with the P(bias) column"
+    return m, score, p
+
+
+def operating_point(is_bias, pred):
+    """Default operating point from actual bias/neutral predictions."""
+    flagged = pred == "bias"
+    tp, fp = int(np.sum(is_bias & flagged)), int(np.sum(~is_bias & flagged))
+    fn, tn = int(np.sum(is_bias & ~flagged)), int(np.sum(~is_bias & ~flagged))
+    return {"bias_precision": tp / (tp + fp), "bias_recall": tp / (tp + fn),
+            "neutral_recall": tn / (tn + fp), "false_alarms": fp, "misses": fn,
+            "fpr": fp / (fp + tn)}
+
+
+def matched_threshold(is_bias, score, fpr_max):
+    """The binary RF's highest TPR on its test ROC curve whose FPR does not exceed fpr_max."""
+    fpr, tpr, thr = roc_curve(is_bias, score, drop_intermediate=False)
+    ok = np.flatnonzero(fpr <= fpr_max)
+    k = ok[np.argmax(tpr[ok])]
+    return {"recall": float(tpr[k]), "fpr": float(fpr[k]),
+            "threshold": float(thr[k]) if np.isfinite(thr[k]) else None}
+
+
+def roc_figure(is_bias, curves, out):
+    """Test-set ROC for the two RQ1 models, each with its default operating point."""
+    fig, ax = plt.subplots(figsize=(3.3, 2.2), layout="constrained")
+    ax.plot([0, 1], [0, 1], color=MUTED, linestyle="--", linewidth=0.8)
+    for j, (label, score, auc, op) in enumerate(curves):
+        fpr, tpr, _ = roc_curve(is_bias, score)
+        ax.plot(fpr, tpr, color=COLORS[j], linewidth=1.2, label=f"{label} (AUC {auc:.3f})")
+        ax.plot(op["fpr"], op["bias_recall"], linestyle="none", marker=MARKERS[j], markersize=5,
+                color=COLORS[j], markeredgecolor=SURFACE, markeredgewidth=0.8)
+    ax.plot([], [], linestyle="none", marker="o", markersize=4, color=INK,
+            label="default operating point")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.01)
+    ax.set_xlabel("False positive rate (neutral flagged as bias)", fontsize=7, color=INK)
+    ax.set_ylabel("True positive rate (bias recall)", fontsize=7, color=INK)
+    ax.grid(color=GRID, linewidth=0.5)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.tick_params(colors=INK, labelsize=6.5)
+    ax.legend(loc="lower right", fontsize=6, frameon=False)
+    fig.savefig(out / "roc_bvn.png", dpi=300)
+    fig.savefig(out / "roc_bvn.pdf", metadata={"CreationDate": None})
+    plt.close(fig)
 
 
 def md_table(header, rows):
@@ -75,6 +140,37 @@ def pm(mean, std):
 
 def confusion_table(cm, labels):
     return md_table(["true \\ pred"] + labels, [[c] + list(r) for c, r in zip(labels, cm)])
+
+
+def ranking_vs_cutoff(cv, t):
+    """The summary's "RQ1: ranking vs cutoff" subsection."""
+    s = ["### RQ1: ranking vs cutoff\n",
+         "Bias-vs-neutral AUC uses a bias score: P(innate) + P(derived) for the 3-class RF, P(bias) "
+         "for the binary RF. It is threshold-free, so it separates *ranking* bias above neutral from "
+         "where each model's default cutoff sits. Reported only; no model choice depends on it.\n",
+         "Dev CV, chosen configurations, mean ± std over the same 5 folds:\n",
+         md_table(["", "3-class RF, collapsed", "binary RF", "paired difference (3-class − binary)"],
+                  [["AUC", pm(**cv["three_class_collapsed"]), pm(**cv["binary"]),
+                    f"{cv['paired_difference']['mean']:+.3f} ± {cv['paired_difference']['std']:.3f}"]]),
+         "",
+         f"Test set: 3-class RF, collapsed {t['auc']['three_class_collapsed']:.3f}; binary RF "
+         f"{t['auc']['binary']:.3f} (difference {t['auc']['difference']:+.3f}).\n",
+         "Default operating points on the test set (from each model's actual predictions):\n"]
+    ops = t["operating_points"]
+    s.append(md_table(
+        ["model", "bias precision", "bias recall", "neutral recall", "false alarms", "misses"],
+        [[label, f3(o["bias_precision"]), f3(o["bias_recall"]), f3(o["neutral_recall"]),
+          o["false_alarms"], o["misses"]]
+         for label, o in (("3-class RF, collapsed", ops["three_class_collapsed"]),
+                          ("binary RF", ops["binary"]))]))
+    m = t["matched_threshold"]
+    s.append(f"\nMatched threshold: at the 3-class RF's default false-alarm rate "
+             f"({m['fpr_three_class_default']:.3f}), the 3-class RF's bias recall is "
+             f"{m['recall_three_class_default']:.3f}; the binary RF's best bias recall on its test "
+             f"ROC curve without exceeding that rate is {m['recall_binary_at_matched_fpr']:.3f} "
+             f"(at FPR {m['binary_fpr_at_matched_point']:.3f}).\n")
+    s.append("Figure: [roc_bvn.png](roc_bvn.png).\n")
+    return "\n".join(s)
 
 
 def summary(cfg, out, split, sweep, train_report, comparison, test, test_table, meta):
@@ -132,6 +228,7 @@ def summary(cfg, out, split, sweep, train_report, comparison, test, test_table, 
           f3(rf["per_class"]["innate"]["f1-score"]), f3(rf["per_class"]["derived"]["f1-score"])]]))
     s.append(f"\nGap (collapsed 3-class − binary): **{test['rq1']['gap']:+.3f}**. "
              "Across all 12 configurations (CV): [label_gap.png](label_gap.png).\n")
+    s.append(ranking_vs_cutoff(train_report["rq1_auc_cv"], test["rq1_auc_test"]))
 
     s.append("## 4. RQ2: robustness across random forest configurations (dev CV)\n")
     s.append(md_table(
@@ -222,14 +319,33 @@ def main():
         "frequency": (DecisionTreeClassifier(max_depth=2, random_state=seed), freq),
         "context_only": (forest(seed, **best3), C),
     }
-    results = {}
+    results, scores, preds = {}, {}, {}
     for name, (clf, F) in models.items():
-        results[name] = three_class(clf, F, y, dev, test)
+        results[name], scores[name], preds[name] = three_class(clf, F, y, dev, test)
         print(f"  {name} done")
-    results["random_forest_binary"] = binary(forest(seed, **best2), X, y, dev, test)
+    name = "random_forest_binary"
+    results[name], scores[name], preds[name] = binary(forest(seed, **best2), X, y, dev, test)
     print("  random_forest_binary done")
 
     rf, rfb = results["random_forest"], results["random_forest_binary"]
+    # RQ1, ranking vs cutoff: reported only; nothing here feeds a model choice.
+    is_bias = to_binary(y[test]) == "bias"
+    op3 = operating_point(is_bias, preds["random_forest"])
+    op2 = operating_point(is_bias, preds["random_forest_binary"])
+    matched = matched_threshold(is_bias, scores["random_forest_binary"], op3["fpr"])
+    rq1_auc_test = {
+        "auc": {"three_class_collapsed": rf["bvn_auc"], "binary": rfb["bvn_auc"],
+                "difference": rf["bvn_auc"] - rfb["bvn_auc"]},
+        "operating_points": {"three_class_collapsed": op3, "binary": op2},
+        "matched_threshold": {"fpr_three_class_default": op3["fpr"],
+                              "recall_three_class_default": op3["bias_recall"],
+                              "recall_binary_at_matched_fpr": matched["recall"],
+                              "binary_fpr_at_matched_point": matched["fpr"],
+                              "binary_threshold": matched["threshold"]},
+    }
+    roc_figure(is_bias, [("binary RF", scores["random_forest_binary"], rfb["bvn_auc"], op2),
+                         ("3-class RF, collapsed", scores["random_forest"], rf["bvn_auc"], op3)],
+               out)
     comparison = pd.read_csv(out / "comparison.csv")
     baselines = comparison[~comparison["model"].str.startswith("random_forest")]
     best_baseline = baselines.loc[baselines["macro_f1_mean"].idxmax(), "model"]
@@ -244,6 +360,7 @@ def main():
                 "three_class_f1_innate": rf["per_class"]["innate"]["f1-score"],
                 "three_class_f1_derived": rf["per_class"]["derived"]["f1-score"]},
         "best_baseline": best_baseline,
+        "rq1_auc_test": rq1_auc_test,
         "models": results,
     }
     write_json(report, out / "test_report.json")
@@ -252,17 +369,18 @@ def main():
     for name, m in results.items():
         if name == "random_forest_binary":
             table.append({"model": name, "labelling": "binary", "bias_vs_neutral_f1": m["macro_f1"],
-                          "auc": m["auc"],
+                          "auc": m["auc"], "bvn_auc": m["bvn_auc"],
                           **{f"f1_{c}_bvn": m["per_class"][c]["f1-score"] for c in BINARY}})
             continue
         table.append({"model": name, "labelling": "3-class", "macro_f1_3class": m["test_macro_f1"],
                       "bias_vs_neutral_f1": m["bias_vs_neutral"]["macro_f1"],
-                      "auc": m["auc_ovr_macro"],
+                      "auc": m["auc_ovr_macro"], "bvn_auc": m["bvn_auc"],
                       **{f"f1_{c}": m["per_class"][c]["f1-score"] for c in CLASSES},
                       **{f"f1_{c}_bvn": m["bias_vs_neutral"]["per_class"][c]["f1-score"]
                          for c in BINARY}})
     table = pd.DataFrame(table, columns=["model", "labelling", "macro_f1_3class",
-                                         "bias_vs_neutral_f1", "auc", "f1_innate", "f1_derived",
+                                         "bias_vs_neutral_f1", "auc", "bvn_auc", "f1_innate",
+                                         "f1_derived",
                                          "f1_neutral", "f1_bias_bvn", "f1_neutral_bvn"])
     table.to_csv(out / "test_comparison.csv", index=False)
 
@@ -276,7 +394,17 @@ def main():
     print(f"\nRQ1 (test): binary RF {q['binary_bias_vs_neutral_f1']:.3f}, collapsed 3-class RF "
           f"{q['collapsed_bias_vs_neutral_f1']:.3f}, gap {q['gap']:+.3f}; 3-class F1 innate "
           f"{q['three_class_f1_innate']:.3f}, derived {q['three_class_f1_derived']:.3f}")
-    print(f"\nWrote {out}/test_report.json, test_comparison.csv, summary.md")
+    a, m = rq1_auc_test["auc"], rq1_auc_test["matched_threshold"]
+    print(f"RQ1 AUC (test): 3-class collapsed {a['three_class_collapsed']:.4f}, binary "
+          f"{a['binary']:.4f}, difference {a['difference']:+.4f}")
+    for label, o in rq1_auc_test["operating_points"].items():
+        print(f"  {label}: bias precision {o['bias_precision']:.3f}, bias recall "
+              f"{o['bias_recall']:.3f}, neutral recall {o['neutral_recall']:.3f}, false alarms "
+              f"{o['false_alarms']}, misses {o['misses']}, FPR {o['fpr']:.3f}")
+    print(f"  matched threshold: FPR <= {m['fpr_three_class_default']:.3f}: 3-class recall "
+          f"{m['recall_three_class_default']:.3f}, binary recall "
+          f"{m['recall_binary_at_matched_fpr']:.3f} (binary FPR {m['binary_fpr_at_matched_point']:.3f})")
+    print(f"\nWrote {out}/test_report.json, test_comparison.csv, roc_bvn.png/.pdf, summary.md")
 
 
 if __name__ == "__main__":

@@ -163,6 +163,21 @@ def binary_metrics(y_true3, y_pred_binary):
     }
 
 
+def bias_score(proba, classes):
+    """P(bias) from predict_proba: the sum of the columns whose class maps to `bias`.
+
+    Three-class model: P(innate) + P(derived). Binary model: P(bias). Columns are found by name in
+    `classes` (the model's classes_), never by position.
+    """
+    m = load_config()["binary_map"]
+    classes = list(classes)
+    assert proba.shape[1] == len(classes), "predict_proba columns do not match classes_"
+    assert all(c in m or c in BINARY for c in classes), f"unknown classes {classes}"
+    cols = [k for k, c in enumerate(classes) if m.get(c, c) == "bias"]
+    assert cols, f"no bias class in {classes}"
+    return proba[:, cols].sum(axis=1)
+
+
 def stat(values):
     v = np.asarray(values, dtype=float)
     return {"mean": float(v.mean()), "std": float(v.std())}

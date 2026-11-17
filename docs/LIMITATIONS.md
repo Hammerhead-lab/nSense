@@ -4,7 +4,9 @@ Numbers are from the pinned StereoSet and BERT revisions (CHANGE-03). The 3,857 
 into a dev set (3,191 rows) and a held-out test set (666 rows, 17.3%). "Dev CV" numbers are means over
 5-fold grouped cross-validation on the dev set; "test" numbers come from one fit on all dev rows, scored
 once on the test set. The random forest is the chosen three-class configuration (`max_depth=10`,
-500 trees). Full tables: `results/summary.md`.
+500 trees). Full tables: `results/summary.md`. The RQ1 operating-point comparison (precision, recall, false alarms at each
+model's default cutoff, and the matched-threshold check) comes from a single test split; the claim about
+ranking rests on the paired CV AUC difference across the 5 dev folds.
 
 ## Neutral context confound
 
